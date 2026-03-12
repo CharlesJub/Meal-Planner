@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 from app.models import Cuisine, Ingredient, Recipe, RecipeIngredient
 from app.schemas import RecipeCreate
 
@@ -14,148 +15,187 @@ def root():
 
 
 @app.get("/random-cuisine")
-def random_cuisine():
-    # Open session
-    db = SessionLocal()
+def random_cuisine(db: Session = Depends(get_db)):
 
-    try:
-        # Get a random cuisine, return first result
-        cuisine = db.query(Cuisine).order_by(func.random()).first()
-        # If a cuisine is found, return it, otherwise return a message
-        if cuisine:
-            return {"cuisine": cuisine.name}
-        else:
-            return {"message": "No cuisines found"}
-    finally:
-        db.close()
+    # Get a random cuisine, return first result
+    cuisine = db.query(Cuisine).order_by(func.random()).first()
+    # If a cuisine is found, return it, otherwise return a message
+    if cuisine:
+        return {"cuisine": cuisine.name}
+    else:
+        return {"message": "No cuisines found"}
 
 
 @app.post("/recipes")
-def create_recipe(recipe_data: RecipeCreate):
-    db = SessionLocal()
-    try:
-        cuisine_name = recipe_data.cuisine.strip()
-        cuisine = db.query(Cuisine).filter_by(name=cuisine_name).first()
-        if cuisine is None:
-            raise HTTPException(status_code=404, detail="Cuisine not found")
+def create_recipe(recipe_data: RecipeCreate, db: Session = Depends(get_db)):
+    existing_recipe = (
+        db.query(Recipe)
+        .filter(Recipe.name == recipe_data.name.strip())
+        .filter(Recipe.source == recipe_data.source)
+        .first()
+    )
 
-        recipe = Recipe(
-            name=recipe_data.name.strip(),
-            cuisine_id=cuisine.id,
-            instructions=recipe_data.instructions,
-            servings=recipe_data.servings,
-            source=recipe_data.source,
-        )
-        db.add(recipe)
-        db.flush()
+    if existing_recipe is not None:
+        raise HTTPException(status_code=409, detail="Recipe already exists")
 
-        for ingredient_input in recipe_data.ingredients:
-            ingredient_name = ingredient_input.name.strip().lower()
+    cuisine_name = recipe_data.cuisine.strip()
+    cuisine = db.query(Cuisine).filter_by(name=cuisine_name).first()
+    if cuisine is None:
+        raise HTTPException(status_code=404, detail="Cuisine not found")
 
-            ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
+    recipe = Recipe(
+        name=recipe_data.name.strip(),
+        cuisine_id=cuisine.id,
+        instructions=recipe_data.instructions,
+        servings=recipe_data.servings,
+        source=recipe_data.source,
+    )
+    db.add(recipe)
+    db.flush()
 
-            if ingredient is None:
-                ingredient = Ingredient(
-                    name=ingredient_name,
-                    unit=ingredient_input.unit.strip(),
-                )
-                db.add(ingredient)
-                db.flush()
+    for ingredient_input in recipe_data.ingredients:
+        ingredient_name = ingredient_input.name.strip().lower()
 
-            recipe_ingredient = RecipeIngredient(
-                recipe_id=recipe.id,
-                ingredient_id=ingredient.id,
-                quantity=ingredient_input.quantity,
+        ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
+
+        if ingredient is None:
+            ingredient = Ingredient(
+                name=ingredient_name,
                 unit=ingredient_input.unit.strip(),
             )
-            db.add(recipe_ingredient)
+            db.add(ingredient)
+            db.flush()
 
-        db.commit()
+        recipe_ingredient = RecipeIngredient(
+            recipe_id=recipe.id,
+            ingredient_id=ingredient.id,
+            quantity=ingredient_input.quantity,
+            unit=ingredient_input.unit.strip(),
+        )
+        db.add(recipe_ingredient)
 
-        return {
-            "message": "Recipe created",
-            "recipe_id": recipe.id,
-            "recipe_name": recipe.name,
-        }
+    db.commit()
 
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return {
+        "message": "Recipe created",
+        "recipe_id": recipe.id,
+        "recipe_name": recipe.name,
+    }
 
 
 @app.get("/recipes/{recipe_id}/macros")
-def get_recipe_macros(recipe_id: int):
-    db = SessionLocal()
+def get_recipe_macros(recipe_id: int, db: Session = Depends(get_db)):
+    recipe = db.query(Recipe).filter_by(id=recipe_id).first()
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
 
-    try:
-        recipe = db.query(Recipe).filter_by(id=recipe_id).first()
-        if recipe is None:
-            raise HTTPException(status_code=404, detail="Recipe not found")
+    recipe_ingredients = db.query(RecipeIngredient).filter_by(recipe_id=recipe_id).all()
 
-        recipe_ingredients = (
-            db.query(RecipeIngredient).filter_by(recipe_id=recipe_id).all()
+    ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
+
+    ingredients = db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
+
+    ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
+
+    totals = {
+        "calories": 0.0,
+        "protein": 0.0,
+        "carbs": 0.0,
+        "fat": 0.0,
+    }
+
+    missing_ingredients = []
+
+    for recipe_ingredient in recipe_ingredients:
+        ingredient = ingredient_map[recipe_ingredient.ingredient_id]
+        quantity = recipe_ingredient.quantity
+
+        has_missing_macros = (
+            ingredient.calories_per_unit is None
+            or ingredient.protein_per_unit is None
+            or ingredient.carbs_per_unit is None
+            or ingredient.fat_per_unit is None
         )
 
-        ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
+        if has_missing_macros:
+            missing_ingredients.append(ingredient.name)
+            continue
 
-        ingredients = (
-            db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
-        )
+        totals["calories"] += ingredient.calories_per_unit * quantity
+        totals["protein"] += ingredient.protein_per_unit * quantity
+        totals["carbs"] += ingredient.carbs_per_unit * quantity
+        totals["fat"] += ingredient.fat_per_unit * quantity
 
-        ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
+    per_serving = {
+        "calories": round(totals["calories"] / recipe.servings, 2),
+        "protein": round(totals["protein"] / recipe.servings, 2),
+        "carbs": round(totals["carbs"] / recipe.servings, 2),
+        "fat": round(totals["fat"] / recipe.servings, 2),
+    }
+    # fix rounding of totals to 2 decimal places
+    totals = {k: round(v, 2) for k, v in totals.items()}
 
-        totals = {
-            "calories": 0.0,
-            "protein": 0.0,
-            "carbs": 0.0,
-            "fat": 0.0,
-        }
+    return {
+        "recipe_id": recipe.id,
+        "recipe_name": recipe.name,
+        "servings": recipe.servings,
+        "recipe_totals": totals,
+        "per_serving": per_serving,
+        "missing_ingredients": missing_ingredients,
+        "is_complete": len(missing_ingredients) == 0,
+    }
 
-        missing_ingredients = []
 
-        for recipe_ingredient in recipe_ingredients:
-            ingredient = ingredient_map[recipe_ingredient.ingredient_id]
-            quantity = recipe_ingredient.quantity
+@app.get("/recipes")
+def get_recipes(db: Session = Depends(get_db)):
+    results = db.query(Recipe, Cuisine).join(Cuisine).all()
 
-            has_missing_macros = (
-                ingredient.calories_per_unit is None
-                or ingredient.protein_per_unit is None
-                or ingredient.carbs_per_unit is None
-                or ingredient.fat_per_unit is None
-            )
-
-            if has_missing_macros:
-                missing_ingredients.append(ingredient.name)
-                continue
-
-            totals["calories"] += ingredient.calories_per_unit * quantity
-            totals["protein"] += ingredient.protein_per_unit * quantity
-            totals["carbs"] += ingredient.carbs_per_unit * quantity
-            totals["fat"] += ingredient.fat_per_unit * quantity
-
-        per_serving = {
-            "calories": round(totals["calories"] / recipe.servings, 2),
-            "protein": round(totals["protein"] / recipe.servings, 2),
-            "carbs": round(totals["carbs"] / recipe.servings, 2),
-            "fat": round(totals["fat"] / recipe.servings, 2),
-        }
-        # fix rounding of totals to 2 decimal places
-        totals = {k: round(v, 2) for k, v in totals.items()}
-
-        return {
-            "recipe_id": recipe.id,
-            "recipe_name": recipe.name,
+    return [
+        {
+            "id": recipe.id,
+            "name": recipe.name,
+            "cuisine_id": cuisine.name,
             "servings": recipe.servings,
-            "recipe_totals": totals,
-            "per_serving": per_serving,
-            "missing_ingredients": missing_ingredients,
-            "is_complete": len(missing_ingredients) == 0,
         }
+        for recipe, cuisine in results
+    ]
 
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+
+@app.get("/recipes/{recipe_id}")
+def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
+
+    result = (
+        db.query(Recipe, Cuisine).join(Cuisine).filter(Recipe.id == recipe_id).first()
+    )
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    recipe, cuisine = result
+
+    recipe_ingredients = (
+        db.query(RecipeIngredient).filter(RecipeIngredient.recipe_id == recipe_id).all()
+    )
+
+    ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
+
+    ingredients = db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
+
+    ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
+
+    return {
+        "id": recipe.id,
+        "name": recipe.name,
+        "cuisine": cuisine.name if cuisine else None,
+        "servings": recipe.servings,
+        "instructions": recipe.instructions,
+        "source": recipe.source,
+        "ingredients": [
+            {
+                "name": ingredient_map[ri.ingredient_id].name,
+                "quantity": ri.quantity,
+                "unit": ri.unit,
+            }
+            for ri in recipe_ingredients
+        ],
+    }
