@@ -1,6 +1,7 @@
 import random
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,17 @@ from app.schemas import RecipeCreate, RecipeParseRequest
 from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -174,7 +186,7 @@ def get_recipes(db: Session = Depends(get_db)):
         {
             "id": recipe.id,
             "name": recipe.name,
-            "cuisine_id": cuisine.name,
+            "cuisine": cuisine.name,
             "servings": recipe.servings,
         }
         for recipe, cuisine in results
