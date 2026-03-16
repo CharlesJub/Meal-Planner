@@ -90,7 +90,9 @@ def get_recipe_macros(recipe_id: int, db: Session = Depends(get_db)):
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    recipe_ingredients = db.query(RecipeIngredient).filter_by(recipe_id=recipe_id).all()
+    recipe_ingredients = (
+        db.query(RecipeIngredient).filter(RecipeIngredient.recipe_id == recipe_id).all()
+    )
 
     ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
 
@@ -108,8 +110,13 @@ def get_recipe_macros(recipe_id: int, db: Session = Depends(get_db)):
     missing_ingredients = []
 
     for recipe_ingredient in recipe_ingredients:
-        ingredient = ingredient_map[recipe_ingredient.ingredient_id]
-        quantity = recipe_ingredient.quantity
+        ingredient = ingredient_map.get(recipe_ingredient.ingredient_id)
+
+        if ingredient is None:
+            missing_ingredients.append(
+                f"unknown ingredient id {recipe_ingredient.ingredient_id}"
+            )
+            continue
 
         has_missing_macros = (
             ingredient.calories_per_unit is None
@@ -119,8 +126,11 @@ def get_recipe_macros(recipe_id: int, db: Session = Depends(get_db)):
         )
 
         if has_missing_macros:
-            missing_ingredients.append(ingredient.name)
+            if ingredient.name not in missing_ingredients:
+                missing_ingredients.append(ingredient.name)
             continue
+
+        quantity = recipe_ingredient.quantity
 
         totals["calories"] += ingredient.calories_per_unit * quantity
         totals["protein"] += ingredient.protein_per_unit * quantity
@@ -128,13 +138,14 @@ def get_recipe_macros(recipe_id: int, db: Session = Depends(get_db)):
         totals["fat"] += ingredient.fat_per_unit * quantity
 
     per_serving = {
-        "calories": round(totals["calories"] / recipe.servings, 2),
-        "protein": round(totals["protein"] / recipe.servings, 2),
-        "carbs": round(totals["carbs"] / recipe.servings, 2),
-        "fat": round(totals["fat"] / recipe.servings, 2),
+        "calories": totals["calories"] / recipe.servings if recipe.servings else 0.0,
+        "protein": totals["protein"] / recipe.servings if recipe.servings else 0.0,
+        "carbs": totals["carbs"] / recipe.servings if recipe.servings else 0.0,
+        "fat": totals["fat"] / recipe.servings if recipe.servings else 0.0,
     }
-    # fix rounding of totals to 2 decimal places
-    totals = {k: round(v, 2) for k, v in totals.items()}
+
+    totals = {key: round(value, 2) for key, value in totals.items()}
+    per_serving = {key: round(value, 2) for key, value in per_serving.items()}
 
     return {
         "recipe_id": recipe.id,
