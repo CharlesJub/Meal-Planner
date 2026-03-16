@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.models import Cuisine, Ingredient, Recipe, RecipeIngredient
 from app.schemas import RecipeCreate
+from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
 
 app = FastAPI()
 
@@ -199,3 +200,82 @@ def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
             for ri in recipe_ingredients
         ],
     }
+
+
+@app.post("/ingredients/enrich")
+def enrich_ingredients(db: Session = Depends(get_db)):
+    ingredients = (
+        db.query(Ingredient)
+        .filter(
+            (Ingredient.calories_per_unit.is_(None))
+            | (Ingredient.protein_per_unit.is_(None))
+            | (Ingredient.carbs_per_unit.is_(None))
+            | (Ingredient.fat_per_unit.is_(None))
+        )
+        .all()
+    )
+
+    ingredients_updated = 0
+    ingredients_skipped = 0
+    enriched = []
+
+    try:
+        for ingredient in ingredients:
+            results = search_usda_foods(ingredient.name, prefer_generic=True)
+
+            if not results:
+                results = search_usda_foods(ingredient.name, prefer_generic=False)
+
+            match = choose_usda_match(results, ingredient.name)
+            if match is None:
+                ingredients_skipped += 1
+                continue
+
+            macros = extract_macros_per_gram(match)
+            if macros is None:
+                ingredients_skipped += 1
+                continue
+
+            ingredient.calories_per_unit = macros["calories_per_unit"]
+            ingredient.protein_per_unit = macros["protein_per_unit"]
+            ingredient.carbs_per_unit = macros["carbs_per_unit"]
+            ingredient.fat_per_unit = macros["fat_per_unit"]
+
+            ingredients_updated += 1
+            enriched.append(
+                {
+                    "ingredient": ingredient.name,
+                    "usda_match": match.get("description"),
+                    "data_type": match.get("dataType"),
+                }
+            )
+
+        db.commit()
+
+        return {
+            "ingredients_updated": ingredients_updated,
+            "ingredients_skipped": ingredients_skipped,
+            "enriched": enriched,
+        }
+
+    except Exception:
+        db.rollback()
+        raise
+
+
+@app.get("/ingredients")
+def get_ingredients(db: Session = Depends(get_db)):
+    ingredients = db.query(Ingredient).all().order_by(Ingredient.name).all()
+
+    return [
+        {
+            "id": ingredient.id,
+            "name": ingredient.name,
+            "unit": ingredient.unit,
+            "calories_per_unit": ingredient.calories_per_unit,
+            "protein_per_unit": ingredient.protein_per_unit,
+            "carbs_per_unit": ingredient.carbs_per_unit,
+            "fat_per_unit": ingredient.fat_per_unit,
+        }
+        for ingredient in ingredients
+    ]
