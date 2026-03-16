@@ -1,9 +1,16 @@
+import random
+
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.cuisine_score import (
+    get_recent_cuisine_ids,
+    get_recipe_counts_by_cuisine,
+    score_cuisine,
+)
 from app.database import SessionLocal, get_db
-from app.models import Cuisine, Ingredient, Recipe, RecipeIngredient
+from app.models import Cuisine, CuisinePickHistory, Ingredient, Recipe, RecipeIngredient
 from app.parsing import parse_recipe_text
 from app.schemas import RecipeCreate, RecipeParseRequest
 from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
@@ -301,3 +308,54 @@ def parse_recipe(request: RecipeParseRequest):
         raise HTTPException(status_code=400, detail="No text provided")
 
     return result
+
+
+@app.post("/cuisines/smart-pick")
+def smart_pick_cuisine(db: Session = Depends(get_db)):
+    cuisines = db.query(Cuisine).all()
+    if not cuisines:
+        raise HTTPException(status_code=404, detail="No cuisines found")
+
+    recent_ids = get_recent_cuisine_ids(db, limit=3)
+    recipe_counts = get_recipe_counts_by_cuisine(db)
+
+    scored_cuisines = []
+    for cuisine in cuisines:
+        recipe_count = recipe_counts.get(cuisine.id, 0)
+        recently_picked = cuisine.id in recent_ids
+        score = score_cuisine(recipe_count, recently_picked)
+
+        scored_cuisines.append(
+            {
+                "id": cuisine.id,
+                "name": cuisine.name,
+                "score": score,
+                "recipe_count": recipe_count,
+                "recently_picked": recently_picked,
+            }
+        )
+
+    scored_cuisines.sort(key=lambda c: c["score"], reverse=True)
+
+    top_candidates = scored_cuisines[:3]
+    chosen = random.choice(top_candidates)
+
+    pick = CuisinePickHistory(cuisine_id=chosen["id"])
+    db.add(pick)
+    db.commit()
+
+    return {
+        "selected_cuisine": chosen["name"],
+        "score": chosen["score"],
+        "recipe_count": chosen["recipe_count"],
+        "recently_picked": chosen["recently_picked"],
+        "top_candidates": [
+            {
+                "cuisine": c["name"],
+                "score": c["score"],
+                "recipe_count": c["recipe_count"],
+                "recently_picked": c["recently_picked"],
+            }
+            for c in top_candidates
+        ],
+    }

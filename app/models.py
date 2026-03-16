@@ -49,3 +49,11 @@ class RecipeIngredient(Base):
 
     quantity = Column(Float, nullable=False)
     unit = Column(String, nullable=False)
+
+
+class CuisinePickHistory(Base):
+    __tablename__ = "cuisine_pick_history"
+
+    id = Column(Integer, primary_key=True)
+    cuisine_id = Column(Integer, ForeignKey("cuisines.id"), nullable=False)
+    picked_at = Column(DateTime, default=datetime.utcnow, nullable=False)
