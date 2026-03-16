@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
 from app.models import Cuisine, Ingredient, Recipe, RecipeIngredient
-from app.schemas import RecipeCreate
+from app.parsing import parse_recipe_text
+from app.schemas import RecipeCreate, RecipeParseRequest
 from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
 
 app = FastAPI()
@@ -290,3 +291,13 @@ def get_ingredients(db: Session = Depends(get_db)):
         }
         for ingredient in ingredients
     ]
+
+
+@app.post("/recipes/parse")
+def parse_recipe(request: RecipeParseRequest):
+    result = parse_recipe_text(request.text)
+
+    if result is None:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    return result

@@ -16,3 +16,7 @@ class RecipeCreate(BaseModel):
     instructions: str
     source: str | None = None
     ingredients: List[RecipeIngredientInput]
+
+
+class RecipeParseRequest(BaseModel):
+    text: str
