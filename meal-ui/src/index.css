@@ -62,6 +62,18 @@
   box-sizing: border-box;
 }
 
+.recipe-card {
+  border: 1px solid #666;
+  background: transparent;
+}
+
+.recipe-card:hover {
+  border-color: #999;
+}
+
+.recipe-card.selected {
+  background: rgba(100, 150, 255, 0.2);
+}
 body {
   margin: 0;
 }
