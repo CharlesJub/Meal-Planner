@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 
+from app.ingredient_normalization import normalize_ingredient_name
 from app.models import Cuisine, Ingredient, Recipe, RecipeIngredient
 from app.services.ingredient_macro_service import try_enrich_ingredient_macros
 
@@ -31,7 +32,8 @@ def create_recipe_logic(*, db, recipe_data):
     db.flush()
 
     for ingredient_input in recipe_data.ingredients:
-        ingredient_name = ingredient_input.name.strip().lower()
+        raw_ingredient_name = ingredient_input.name.strip().lower()
+        ingredient_name = normalize_ingredient_name(raw_ingredient_name)
 
         ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
 

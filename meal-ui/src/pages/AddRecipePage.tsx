@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, useNavigate } from "react-router"
 import type { IngredientFormRow } from "../api/types"
-import { ApiError, createRecipe } from "../api/recipes"
+import { ApiError, createRecipe, parseRecipeText } from "../api/recipes"
 import { getCuisines, type Cuisine } from "../api/cuisines"
 
 type ValidationDetail = {
@@ -43,6 +43,8 @@ function getRecipeErrorMessage(err: unknown): string {
 function AddRecipePage() {
   const navigate = useNavigate()
 
+  const [entryMode, setEntryMode] = useState<"manual" | "paste">("manual")
+  const [recipeText, setRecipeText] = useState("")
   const [name, setName] = useState("")
   const [selectedCuisineId, setSelectedCuisineId] = useState("")
   const [servings, setServings] = useState("")
@@ -53,7 +55,9 @@ function AddRecipePage() {
   ])
   const [cuisines, setCuisines] = useState<Cuisine[]>([])
   const [cuisineError, setCuisineError] = useState<string | null>(null)
+  const [parseMessage, setParseMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [parsing, setParsing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -94,6 +98,58 @@ function AddRecipePage() {
 
   function removeIngredientRow(index: number) {
     setIngredients((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function handleParseRecipe() {
+    if (!recipeText.trim()) {
+      setError("Paste a recipe before parsing")
+      return
+    }
+
+    try {
+      setParsing(true)
+      setError(null)
+      setParseMessage(null)
+
+      const parsedRecipe = await parseRecipeText(recipeText)
+
+      setName(parsedRecipe.name ?? "")
+      setServings(
+        parsedRecipe.servings != null ? String(parsedRecipe.servings) : ""
+      )
+      setInstructions(parsedRecipe.instructions ?? "")
+      setIngredients(
+        parsedRecipe.ingredients.length > 0
+          ? parsedRecipe.ingredients.map((ingredient) => ({
+              name: ingredient.name,
+              quantity: String(ingredient.quantity),
+              unit: ingredient.unit,
+            }))
+          : [{ name: "", quantity: "", unit: "" }]
+      )
+
+      const messages = [
+        `Parsed ${parsedRecipe.ingredients.length} ingredient${
+          parsedRecipe.ingredients.length === 1 ? "" : "s"
+        }.`,
+      ]
+
+      if (parsedRecipe.unparsed_lines.length > 0) {
+        messages.push(
+          `Could not place ${parsedRecipe.unparsed_lines.length} line${
+            parsedRecipe.unparsed_lines.length === 1 ? "" : "s"
+          } automatically.`
+        )
+      }
+
+      setParseMessage(messages.join(" "))
+      setEntryMode("manual")
+    } catch (err) {
+      console.error("Recipe parse error:", err)
+      setError(getRecipeErrorMessage(err))
+    } finally {
+      setParsing(false)
+    }
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -163,6 +219,88 @@ function AddRecipePage() {
       <h1>Add Recipe</h1>
 
       <form onSubmit={handleSubmit}>
+        <div style={{ marginBottom: "16px" }}>
+          <strong>How do you want to add this recipe?</strong>
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              marginTop: "10px",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setEntryMode("manual")}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #666",
+                background:
+                  entryMode === "manual"
+                    ? "rgba(100, 150, 255, 0.2)"
+                    : "transparent",
+              }}
+            >
+              Fill out the form
+            </button>
+            <button
+              type="button"
+              onClick={() => setEntryMode("paste")}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #666",
+                background:
+                  entryMode === "paste"
+                    ? "rgba(100, 150, 255, 0.2)"
+                    : "transparent",
+              }}
+            >
+              Paste recipe text
+            </button>
+          </div>
+        </div>
+
+        {entryMode === "paste" && (
+          <div
+            style={{
+              marginBottom: "20px",
+              padding: "16px",
+              border: "1px solid #444",
+              borderRadius: "8px",
+              textAlign: "left",
+            }}
+          >
+            <label>Paste the full recipe</label>
+            <br />
+            <textarea
+              rows={12}
+              value={recipeText}
+              onChange={(e) => setRecipeText(e.target.value)}
+              placeholder={
+                "Best Chicken Tacos\nServes 4\n1 lb chicken breast\n2 tbsp olive oil\n...\nCook chicken..."
+              }
+              style={{ width: "100%", boxSizing: "border-box", marginTop: "8px" }}
+            />
+            <p style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
+              The first line becomes the title. Ingredient lines work best in the
+              format `quantity unit ingredient`.
+            </p>
+            <div style={{ marginTop: "12px" }}>
+              <button type="button" onClick={handleParseRecipe} disabled={parsing}>
+                {parsing ? "Parsing..." : "Parse Recipe Text"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {parseMessage && (
+          <p style={{ color: "#2e7d32", marginBottom: "16px", whiteSpace: "pre-wrap" }}>
+            {parseMessage}
+          </p>
+        )}
+
         <div>
           <label>Name</label>
           <br />

@@ -1,5 +1,6 @@
 import type {
   CreateRecipePayload,
+  ParsedRecipe,
   Recipe,
   RecipeDetail,
   RecipeMacros,
@@ -69,6 +70,20 @@ export async function createRecipe(
       body: JSON.stringify(payload),
     },
     "Failed to create recipe"
+  )
+}
+
+export async function parseRecipeText(text: string): Promise<ParsedRecipe> {
+  return requestJson<ParsedRecipe>(
+    "/recipes/parse",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text }),
+    },
+    "Failed to parse recipe text"
   )
 }
 

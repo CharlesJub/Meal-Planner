@@ -81,3 +81,17 @@ export type CreateRecipePayload = {
     unit: string
   }[]
 }
+
+export type ParsedRecipeIngredient = {
+  name: string
+  quantity: number
+  unit: string
+}
+
+export type ParsedRecipe = {
+  name: string
+  servings?: number | null
+  ingredients: ParsedRecipeIngredient[]
+  unparsed_lines: string[]
+  instructions: string
+}

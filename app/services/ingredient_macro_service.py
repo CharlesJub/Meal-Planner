@@ -1,5 +1,6 @@
 from requests import RequestException
 
+from app.ingredient_normalization import build_ingredient_search_queries
 from app.models import Ingredient
 from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
 
@@ -21,11 +22,19 @@ def enrich_ingredient_macros(ingredient: Ingredient):
             "data_type": None,
         }
 
-    results = search_usda_foods(ingredient.name, prefer_generic=True)
-    if not results:
-        results = search_usda_foods(ingredient.name, prefer_generic=False)
+    match = None
+    matched_query = ingredient.name
 
-    match = choose_usda_match(results, ingredient.name)
+    for query in build_ingredient_search_queries(ingredient.name):
+        results = search_usda_foods(query, prefer_generic=True)
+        if not results:
+            results = search_usda_foods(query, prefer_generic=False)
+
+        match = choose_usda_match(results, query)
+        if match is not None:
+            matched_query = query
+            break
+
     if match is None:
         return None
 
@@ -42,6 +51,7 @@ def enrich_ingredient_macros(ingredient: Ingredient):
         "ingredient": ingredient.name,
         "usda_match": match.get("description"),
         "data_type": match.get("dataType"),
+        "matched_query": matched_query,
     }
 
 
