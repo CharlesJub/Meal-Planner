@@ -113,7 +113,18 @@ def _replace_recipe_ingredients(*, db, recipe, ingredient_inputs):
             "fat": ingredient_input.override_fat_per_unit,
         }
 
-        ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
+        ingredient = None
+        explicit_ingredient_id = getattr(ingredient_input, "ingredient_id", None)
+
+        if explicit_ingredient_id is not None:
+            ingredient = (
+                db.query(Ingredient)
+                .filter(Ingredient.id == explicit_ingredient_id)
+                .first()
+            )
+
+        if ingredient is None:
+            ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
 
         if ingredient is None:
             ingredient = Ingredient(

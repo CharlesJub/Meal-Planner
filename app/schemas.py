@@ -5,6 +5,7 @@ from pydantic import BaseModel, model_validator
 
 class RecipeIngredientInput(BaseModel):
     name: str
+    ingredient_id: int | None = None
     quantity: float | None = None
     unit: str | None = None
     correction_status: str | None = None

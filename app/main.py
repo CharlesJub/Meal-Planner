@@ -47,6 +47,32 @@ app.add_middleware(
 init_database()
 
 
+def _serialize_ingredient(ingredient: Ingredient) -> dict:
+    macro_values = (
+        ingredient.calories_per_unit,
+        ingredient.protein_per_unit,
+        ingredient.carbs_per_unit,
+        ingredient.fat_per_unit,
+    )
+    if all(value is not None for value in macro_values):
+        macro_status = "matched"
+    elif any(value is not None for value in macro_values):
+        macro_status = "incomplete"
+    else:
+        macro_status = "unmatched"
+
+    return {
+        "id": ingredient.id,
+        "name": ingredient.name,
+        "unit": ingredient.unit,
+        "calories_per_unit": ingredient.calories_per_unit,
+        "protein_per_unit": ingredient.protein_per_unit,
+        "carbs_per_unit": ingredient.carbs_per_unit,
+        "fat_per_unit": ingredient.fat_per_unit,
+        "macro_status": macro_status,
+    }
+
+
 @app.get("/")
 def root():
     return {"message": "Recipe Macro API running"}
@@ -96,6 +122,7 @@ def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
             {
                 "id": ri.id,
                 "name": ingredient_map[ri.ingredient_id].name,
+                "ingredient_id": ri.ingredient_id,
                 "quantity": ri.quantity,
                 "unit": ri.unit,
                 "correction_status": ri.correction_status,
@@ -157,21 +184,41 @@ def enrich_ingredients(db: Session = Depends(get_db)):
 
 
 @app.get("/ingredients")
-def get_ingredients(db: Session = Depends(get_db)):
-    ingredients = db.query(Ingredient).order_by(Ingredient.name).all()
+def get_ingredients(search: str | None = None, db: Session = Depends(get_db)):
+    query = db.query(Ingredient)
 
-    return [
-        {
-            "id": ingredient.id,
-            "name": ingredient.name,
-            "unit": ingredient.unit,
-            "calories_per_unit": ingredient.calories_per_unit,
-            "protein_per_unit": ingredient.protein_per_unit,
-            "carbs_per_unit": ingredient.carbs_per_unit,
-            "fat_per_unit": ingredient.fat_per_unit,
-        }
-        for ingredient in ingredients
-    ]
+    if search and search.strip():
+        normalized_search = search.strip().lower()
+        query = query.filter(Ingredient.name.ilike(f"%{normalized_search}%"))
+
+    ingredients = query.order_by(Ingredient.name).limit(25).all()
+
+    return [_serialize_ingredient(ingredient) for ingredient in ingredients]
+
+
+@app.post("/ingredients")
+def create_ingredient(payload: dict, db: Session = Depends(get_db)):
+    name = str(payload.get("name", "")).strip().lower()
+    if not name:
+        raise HTTPException(status_code=400, detail="Ingredient name is required")
+
+    existing = db.query(Ingredient).filter(Ingredient.name == name).first()
+    if existing is not None:
+        return _serialize_ingredient(existing)
+
+    ingredient = Ingredient(
+        name=name,
+        unit=(payload.get("unit") or "").strip() or None,
+        calories_per_unit=payload.get("calories_per_unit"),
+        protein_per_unit=payload.get("protein_per_unit"),
+        carbs_per_unit=payload.get("carbs_per_unit"),
+        fat_per_unit=payload.get("fat_per_unit"),
+    )
+    db.add(ingredient)
+    db.commit()
+    db.refresh(ingredient)
+
+    return _serialize_ingredient(ingredient)
 
 
 @app.post("/recipes/parse")

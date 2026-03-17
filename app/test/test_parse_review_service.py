@@ -5,23 +5,33 @@ from app.services.parse_review_service import build_parse_review
 
 
 class QueryStub:
-    def __init__(self, match):
+    def __init__(self, match, candidates=None):
         self.match = match
+        self.candidates = candidates or []
 
     def filter(self, *_args, **_kwargs):
+        return self
+
+    def order_by(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
         return self
 
     def first(self):
         return self.match
 
+    def all(self):
+        return self.candidates
+
 
 class DbStub:
-    def __init__(self, matches):
-        self.matches = list(matches)
+    def __init__(self, match=None, candidates=None):
+        self.match = match
+        self.candidates = candidates or []
 
     def query(self, _model):
-        match = self.matches.pop(0) if self.matches else None
-        return QueryStub(match)
+        return QueryStub(self.match, self.candidates)
 
 
 class ParseReviewServiceTests(unittest.TestCase):
@@ -33,7 +43,7 @@ class ParseReviewServiceTests(unittest.TestCase):
             "unparsed_lines": [],
         }
 
-        result = build_parse_review(DbStub([None]), parsed_recipe)
+        result = build_parse_review(DbStub(), parsed_recipe)
 
         self.assertTrue(result["needs_human_review"])
         self.assertEqual(result["summary"]["ingredients_needing_review"], 1)
@@ -41,6 +51,8 @@ class ParseReviewServiceTests(unittest.TestCase):
             result["ingredient_reviews"][0]["flags"],
             ["missing_quantity", "missing_unit", "missing_macro_source"],
         )
+        self.assertEqual(result["ingredient_reviews"][0]["macro_status"], "unmatched")
+        self.assertIsNone(result["ingredient_reviews"][0]["matched_ingredient"])
 
     def test_allows_clean_auto_matched_ingredients_to_pass_without_review(self):
         parsed_recipe = {
@@ -50,13 +62,16 @@ class ParseReviewServiceTests(unittest.TestCase):
             "unparsed_lines": [],
         }
         ingredient = SimpleNamespace(
+            id=11,
+            name="olive oil",
+            unit="tablespoon",
             calories_per_unit=8.0,
             protein_per_unit=0.0,
             carbs_per_unit=0.0,
             fat_per_unit=0.9,
         )
 
-        result = build_parse_review(DbStub([ingredient]), parsed_recipe)
+        result = build_parse_review(DbStub(match=ingredient), parsed_recipe)
 
         self.assertFalse(result["needs_human_review"])
         self.assertEqual(result["summary"]["ingredients_needing_review"], 0)
@@ -64,6 +79,10 @@ class ParseReviewServiceTests(unittest.TestCase):
         self.assertEqual(
             result["ingredient_reviews"][0]["suggested_status"], "auto_matched"
         )
+        self.assertEqual(
+            result["ingredient_reviews"][0]["matched_ingredient"]["id"], 11
+        )
+        self.assertEqual(result["ingredient_reviews"][0]["macro_status"], "matched")
 
     def test_unparsed_lines_alone_trigger_human_review(self):
         parsed_recipe = {
@@ -71,10 +90,34 @@ class ParseReviewServiceTests(unittest.TestCase):
             "unparsed_lines": ["Salt to taste"],
         }
 
-        result = build_parse_review(DbStub([]), parsed_recipe)
+        result = build_parse_review(DbStub(), parsed_recipe)
 
         self.assertTrue(result["needs_human_review"])
         self.assertEqual(result["summary"]["unparsed_line_count"], 1)
+
+    def test_returns_candidate_matches_for_manual_correction(self):
+        parsed_recipe = {
+            "ingredients": [
+                {"name": "sweet potatoes", "quantity": 2.0, "unit": "lb"},
+            ],
+            "unparsed_lines": [],
+        }
+        candidate = SimpleNamespace(
+            id=5,
+            name="sweet potato raw",
+            unit="gram",
+            calories_per_unit=0.86,
+            protein_per_unit=0.02,
+            carbs_per_unit=0.2,
+            fat_per_unit=0.0,
+        )
+
+        result = build_parse_review(DbStub(candidates=[candidate]), parsed_recipe)
+
+        self.assertEqual(
+            result["ingredient_reviews"][0]["candidate_ingredients"][0]["name"],
+            "sweet potato raw",
+        )
 
 
 if __name__ == "__main__":

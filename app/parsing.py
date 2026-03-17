@@ -294,6 +294,23 @@ def parse_bare_ingredient_line(line: str):
     }
 
 
+def build_parse_issue(
+    *,
+    line: str,
+    line_number: int,
+    section: str,
+    issue_type: str,
+    reason: str,
+) -> dict:
+    return {
+        "raw_line": line,
+        "line_number": line_number,
+        "section": section,
+        "issue_type": issue_type,
+        "reason": reason,
+    }
+
+
 def parse_recipe_text(text: str):
     raw_lines = [normalize_line(line) for line in text.splitlines()]
     lines = [line for line in raw_lines if line]
@@ -305,11 +322,12 @@ def parse_recipe_text(text: str):
     servings = None
     ingredients = []
     unparsed_lines = []
+    parse_issues = []
     instructions_lines = []
     current_section = "intro"
     saw_explicit_ingredients_section = False
 
-    for line in lines[1:]:
+    for line_number, line in enumerate(lines[1:], start=2):
         section = extract_section_header(line)
         if section is not None:
             current_section = section
@@ -330,6 +348,15 @@ def parse_recipe_text(text: str):
 
         if current_section == "notes":
             unparsed_lines.append(line)
+            parse_issues.append(
+                build_parse_issue(
+                    line=line,
+                    line_number=line_number,
+                    section=current_section,
+                    issue_type="note",
+                    reason="Captured note text outside structured recipe fields.",
+                )
+            )
             continue
 
         embedded_instruction = split_embedded_instruction(line)
@@ -364,11 +391,29 @@ def parse_recipe_text(text: str):
                     ingredients.append(parse_bare_ingredient_line(line))
                 elif saw_explicit_ingredients_section:
                     unparsed_lines.append(line)
+                    parse_issues.append(
+                        build_parse_issue(
+                            line=line,
+                            line_number=line_number,
+                            section=current_section,
+                            issue_type="unparsed_ingredient_line",
+                            reason="Line appeared in ingredients section but could not be parsed as an ingredient.",
+                        )
+                    )
                 elif is_instruction_line(line):
                     current_section = "instructions"
                     instructions_lines.append(line)
                 else:
                     unparsed_lines.append(line)
+                    parse_issues.append(
+                        build_parse_issue(
+                            line=line,
+                            line_number=line_number,
+                            section=current_section,
+                            issue_type="unparsed_ingredient_line",
+                            reason="Line was treated as ingredient content but did not match ingredient parsing heuristics.",
+                        )
+                    )
             continue
 
         if current_section == "instructions":
@@ -385,6 +430,15 @@ def parse_recipe_text(text: str):
             instructions_lines.append(line)
         else:
             unparsed_lines.append(line)
+            parse_issues.append(
+                build_parse_issue(
+                    line=line,
+                    line_number=line_number,
+                    section=current_section,
+                    issue_type="unclassified_line",
+                    reason="Line could not be classified before any ingredients were detected.",
+                )
+            )
 
     instructions = finalize_instruction_lines(instructions_lines)
 
@@ -393,5 +447,6 @@ def parse_recipe_text(text: str):
         "servings": servings,
         "ingredients": ingredients,
         "unparsed_lines": unparsed_lines,
+        "parse_issues": parse_issues,
         "instructions": instructions,
     }

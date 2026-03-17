@@ -1,5 +1,6 @@
 import type {
   CreateRecipePayload,
+  IngredientMatch,
   ParsedRecipe,
   Recipe,
   RecipeDetail,
@@ -103,6 +104,67 @@ export async function parseRecipeText(text: string): Promise<ParsedRecipe> {
     },
     "Failed to parse recipe text"
   )
+}
+
+export async function searchIngredients(search: string): Promise<IngredientMatch[]> {
+  const params = new URLSearchParams()
+  if (search.trim()) {
+    params.set("search", search.trim())
+  }
+
+  const queryString = params.toString()
+  return requestJson<IngredientMatch[]>(
+    `/ingredients${queryString ? `?${queryString}` : ""}`,
+    undefined,
+    "Failed to search ingredients"
+  )
+}
+
+export async function createIngredient(payload: {
+  name: string
+  unit?: string | null
+  calories_per_unit?: number | null
+  protein_per_unit?: number | null
+  carbs_per_unit?: number | null
+  fat_per_unit?: number | null
+}): Promise<IngredientMatch> {
+  const ingredient = await requestJson<{
+    id: number
+    name: string
+    unit?: string | null
+    calories_per_unit?: number | null
+    protein_per_unit?: number | null
+    carbs_per_unit?: number | null
+    fat_per_unit?: number | null
+  }>(
+    "/ingredients",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Failed to create ingredient"
+  )
+
+  const macroValues = [
+    ingredient.calories_per_unit,
+    ingredient.protein_per_unit,
+    ingredient.carbs_per_unit,
+    ingredient.fat_per_unit,
+  ]
+  const macro_status =
+    macroValues.every((value) => value != null)
+      ? "matched"
+      : macroValues.some((value) => value != null)
+        ? "incomplete"
+        : "unmatched"
+
+  return {
+    ...ingredient,
+    macro_status,
+  }
 }
 
 export type Cuisine = {

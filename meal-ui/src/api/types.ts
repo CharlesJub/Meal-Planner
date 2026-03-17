@@ -8,6 +8,7 @@ export type Recipe = {
 export type Ingredient = {
   id?: number
   name: string
+  ingredient_id?: number | null
   quantity?: number | null
   unit?: string | null
   correction_status?: string | null
@@ -37,6 +38,7 @@ export type ReviewFlag =
 export type IngredientFormRow = {
   clientId: string
   name: string
+  ingredientId: number | null
   quantity: string
   unit: string
   correctionStatus: string
@@ -47,6 +49,23 @@ export type IngredientFormRow = {
   reviewFlags: ReviewFlag[]
   needsReview: boolean
   showMacros: boolean
+  matchedIngredient: IngredientMatch | null
+  candidateIngredients: IngredientMatch[]
+  searchTerm: string
+  searchResults: IngredientMatch[]
+  isSearching: boolean
+  isCreatingIngredient: boolean
+}
+
+export type IngredientMatch = {
+  id: number
+  name: string
+  unit?: string | null
+  calories_per_unit?: number | null
+  protein_per_unit?: number | null
+  carbs_per_unit?: number | null
+  fat_per_unit?: number | null
+  macro_status: "matched" | "unmatched" | "incomplete"
 }
 
 export type MacroSet = {
@@ -103,6 +122,7 @@ export type CreateRecipePayload = {
   source: string
   ingredients: {
     name: string
+    ingredient_id: number | null
     quantity: number | null
     unit: string | null
     correction_status: string
@@ -120,6 +140,7 @@ export type UpdateRecipePayload = {
   source: string
   ingredients: {
     name: string
+    ingredient_id: number | null
     quantity: number | null
     unit: string | null
     correction_status: string
@@ -140,6 +161,10 @@ export type ParsedIngredientReview = {
   name: string
   quantity: number | null
   unit: string | null
+  normalized_name?: string | null
+  matched_ingredient: IngredientMatch | null
+  candidate_ingredients: IngredientMatch[]
+  macro_status: "matched" | "unmatched" | "incomplete"
   flags: ReviewFlag[]
   needs_review: boolean
   suggested_status: string

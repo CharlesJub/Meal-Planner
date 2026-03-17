@@ -3,11 +3,18 @@ import type { FormEvent } from "react"
 import { Link, useNavigate } from "react-router"
 import type {
   CreateRecipePayload,
+  IngredientMatch,
   IngredientFormRow,
   ParsedRecipe,
   ReviewFlag,
 } from "../api/types"
-import { ApiError, createRecipe, parseRecipeText } from "../api/recipes"
+import {
+  ApiError,
+  createIngredient,
+  createRecipe,
+  parseRecipeText,
+  searchIngredients,
+} from "../api/recipes"
 import { getCuisines, type Cuisine } from "../api/cuisines"
 
 type AddRecipePageProps = {
@@ -77,6 +84,7 @@ function createBlankIngredientRow(name = ""): IngredientFormRow {
   return {
     clientId: nextIngredientRowId(),
     name,
+    ingredientId: null,
     quantity: "",
     unit: "",
     correctionStatus: name.trim() ? "needs_review" : "auto_matched",
@@ -87,6 +95,12 @@ function createBlankIngredientRow(name = ""): IngredientFormRow {
     reviewFlags: name.trim() ? ["missing_quantity", "missing_unit"] : [],
     needsReview: name.trim().length > 0,
     showMacros: false,
+    matchedIngredient: null,
+    candidateIngredients: [],
+    searchTerm: name,
+    searchResults: [],
+    isSearching: false,
+    isCreatingIngredient: false,
   }
 }
 
@@ -99,6 +113,7 @@ function buildIngredientRow(
   return {
     clientId: nextIngredientRowId(),
     name: ingredient.name ?? "",
+    ingredientId: review?.matched_ingredient?.id ?? null,
     quantity:
       ingredient.quantity == null || Number.isNaN(ingredient.quantity)
         ? ""
@@ -112,6 +127,12 @@ function buildIngredientRow(
     reviewFlags: review?.flags ?? [],
     needsReview: review?.needs_review ?? false,
     showMacros: false,
+    matchedIngredient: review?.matched_ingredient ?? null,
+    candidateIngredients: review?.candidate_ingredients ?? [],
+    searchTerm: ingredient.name ?? "",
+    searchResults: [],
+    isSearching: false,
+    isCreatingIngredient: false,
   }
 }
 
@@ -135,7 +156,14 @@ function hasCompleteMacroOverride(row: IngredientFormRow) {
 function getRowFlags(row: IngredientFormRow): ReviewFlag[] {
   const flags = new Set<ReviewFlag>(
     row.reviewFlags.filter(
-      (flag) => flag !== "missing_quantity" && flag !== "missing_unit"
+      (flag) =>
+        ![
+          "missing_quantity",
+          "missing_unit",
+          "missing_macro_source",
+          "missing_macro_data",
+          "partial_macro_override",
+        ].includes(flag)
     )
   )
 
@@ -150,9 +178,13 @@ function getRowFlags(row: IngredientFormRow): ReviewFlag[] {
     flags.add("partial_macro_override")
   } else {
     flags.delete("partial_macro_override")
-    if (hasCompleteMacroOverride(row)) {
-      flags.delete("missing_macro_source")
-      flags.delete("missing_macro_data")
+  }
+
+  if (!hasCompleteMacroOverride(row)) {
+    if (row.matchedIngredient == null) {
+      flags.add("missing_macro_source")
+    } else if (row.matchedIngredient.macro_status !== "matched") {
+      flags.add("missing_macro_data")
     }
   }
 
@@ -164,6 +196,15 @@ function resolveCorrectionStatus(row: IngredientFormRow): string {
 
   if (hasCompleteMacroOverride(row)) {
     return "user_overridden"
+  }
+  if (row.ingredientId != null) {
+    if (
+      row.correctionStatus === "auto_matched" &&
+      row.matchedIngredient?.id === row.ingredientId
+    ) {
+      return flags.length > 0 ? "unresolved" : "auto_matched"
+    }
+    return flags.length > 0 ? "unresolved" : "user_confirmed"
   }
   if (row.correctionStatus && row.correctionStatus !== "needs_review") {
     return row.correctionStatus
@@ -265,11 +306,191 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
   ) {
     setIngredients((prev) =>
       prev.map((ingredient) =>
+        ingredient.clientId !== clientId
+          ? ingredient
+          : field === "name"
+            ? {
+                ...ingredient,
+                name: String(value),
+                ingredientId: null,
+                matchedIngredient: null,
+                candidateIngredients: [],
+                searchTerm: String(value),
+                searchResults: [],
+                correctionStatus: "needs_review",
+              }
+            : field === "showMacros"
+              ? { ...ingredient, showMacros: Boolean(value) }
+              : field === "searchTerm"
+                ? { ...ingredient, searchTerm: String(value) }
+                : field === "quantity"
+                  ? { ...ingredient, quantity: String(value) }
+                  : field === "unit"
+                    ? { ...ingredient, unit: String(value) }
+                    : field === "correctionStatus"
+                      ? { ...ingredient, correctionStatus: String(value) }
+                      : field === "overrideCaloriesPerUnit"
+                        ? { ...ingredient, overrideCaloriesPerUnit: String(value) }
+                        : field === "overrideProteinPerUnit"
+                          ? { ...ingredient, overrideProteinPerUnit: String(value) }
+                          : field === "overrideCarbsPerUnit"
+                            ? { ...ingredient, overrideCarbsPerUnit: String(value) }
+                            : field === "overrideFatPerUnit"
+                              ? { ...ingredient, overrideFatPerUnit: String(value) }
+                              : ingredient
+      )
+    )
+  }
+
+  function applyIngredientMatch(clientId: string, match: IngredientMatch) {
+    setIngredients((prev) =>
+      prev.map((ingredient) =>
         ingredient.clientId === clientId
-          ? { ...ingredient, [field]: value }
+          ? {
+              ...ingredient,
+              ingredientId: match.id,
+              matchedIngredient: match,
+              candidateIngredients: [
+                match,
+                ...ingredient.candidateIngredients.filter(
+                  (candidate) => candidate.id !== match.id
+                ),
+              ],
+              searchResults: ingredient.searchResults.filter(
+                (candidate) => candidate.id !== match.id
+              ),
+              searchTerm: match.name,
+              correctionStatus: "user_confirmed",
+            }
           : ingredient
       )
     )
+  }
+
+  async function handleIngredientSearch(row: IngredientFormRow) {
+    const searchTerm = row.searchTerm.trim() || row.name.trim()
+    if (!searchTerm) {
+      setError("Enter an ingredient name before searching.")
+      return
+    }
+
+    setIngredients((prev) =>
+      prev.map((ingredient) =>
+        ingredient.clientId === row.clientId
+          ? { ...ingredient, isSearching: true }
+          : ingredient
+      )
+    )
+
+    try {
+      const results = await searchIngredients(searchTerm)
+      setIngredients((prev) =>
+        prev.map((ingredient) =>
+          ingredient.clientId === row.clientId
+            ? {
+                ...ingredient,
+                searchResults: results,
+                candidateIngredients: [
+                  ...ingredient.candidateIngredients,
+                  ...results.filter(
+                    (result) =>
+                      !ingredient.candidateIngredients.some(
+                        (candidate) => candidate.id === result.id
+                      )
+                  ),
+                ],
+                isSearching: false,
+              }
+            : ingredient
+        )
+      )
+    } catch (err) {
+      console.error("Ingredient search error:", err)
+      setError(getRecipeErrorMessage(err))
+      setIngredients((prev) =>
+        prev.map((ingredient) =>
+          ingredient.clientId === row.clientId
+            ? { ...ingredient, isSearching: false }
+            : ingredient
+        )
+      )
+    }
+  }
+
+  async function handleCreateIngredient(row: IngredientFormRow) {
+    if (!row.name.trim()) {
+      setError("Enter an ingredient name before creating a new ingredient.")
+      return
+    }
+
+    if (hasAnyMacroOverride(row) && !hasCompleteMacroOverride(row)) {
+      setError("Complete all four macro override fields before creating an ingredient.")
+      return
+    }
+
+    const macroOverridePayload = buildMacroOverridePayload(row)
+    if (hasCompleteMacroOverride(row) && macroOverridePayload == null) {
+      setError(
+        "Enter a quantity greater than 0 before turning row macros into a new ingredient."
+      )
+      return
+    }
+
+    setIngredients((prev) =>
+      prev.map((ingredient) =>
+        ingredient.clientId === row.clientId
+          ? { ...ingredient, isCreatingIngredient: true }
+          : ingredient
+      )
+    )
+
+    try {
+      const created = await createIngredient({
+        name: row.name.trim(),
+        unit: row.unit.trim() || null,
+        calories_per_unit: macroOverridePayload?.override_calories_per_unit ?? null,
+        protein_per_unit: macroOverridePayload?.override_protein_per_unit ?? null,
+        carbs_per_unit: macroOverridePayload?.override_carbs_per_unit ?? null,
+        fat_per_unit: macroOverridePayload?.override_fat_per_unit ?? null,
+      })
+
+      setIngredients((prev) =>
+        prev.map((ingredient) =>
+          ingredient.clientId === row.clientId
+            ? {
+                ...ingredient,
+                ingredientId: created.id,
+                matchedIngredient: created,
+                candidateIngredients: [
+                  created,
+                  ...ingredient.candidateIngredients.filter(
+                    (candidate) => candidate.id !== created.id
+                  ),
+                ],
+                searchResults: [],
+                searchTerm: created.name,
+                correctionStatus: "user_confirmed",
+                isCreatingIngredient: false,
+                overrideCaloriesPerUnit: macroOverridePayload ? "" : ingredient.overrideCaloriesPerUnit,
+                overrideProteinPerUnit: macroOverridePayload ? "" : ingredient.overrideProteinPerUnit,
+                overrideCarbsPerUnit: macroOverridePayload ? "" : ingredient.overrideCarbsPerUnit,
+                overrideFatPerUnit: macroOverridePayload ? "" : ingredient.overrideFatPerUnit,
+                showMacros: macroOverridePayload ? false : ingredient.showMacros,
+              }
+            : ingredient
+        )
+      )
+    } catch (err) {
+      console.error("Ingredient creation error:", err)
+      setError(getRecipeErrorMessage(err))
+      setIngredients((prev) =>
+        prev.map((ingredient) =>
+          ingredient.clientId === row.clientId
+            ? { ...ingredient, isCreatingIngredient: false }
+            : ingredient
+        )
+      )
+    }
   }
 
   function addIngredientRow(name = "") {
@@ -430,6 +651,7 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
 
           return {
             name: ingredient.name.trim(),
+            ingredient_id: ingredient.ingredientId,
             quantity: toOptionalNumber(ingredient.quantity),
             unit: ingredient.unit.trim() || null,
             correction_status: resolveCorrectionStatus(ingredient),
@@ -711,6 +933,115 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
                             <option value="unresolved">Unresolved</option>
                           </select>
                         </label>
+                      </div>
+
+                      <div className="match-panel">
+                        <div className="match-panel-header">
+                          <div>
+                            <strong>Ingredient match</strong>
+                            <p className="muted-copy">
+                              {ingredient.matchedIngredient
+                                ? `Using ${ingredient.matchedIngredient.name}`
+                                : "No ingredient record selected yet."}
+                            </p>
+                          </div>
+                          <span
+                            className={`flag-badge ${
+                              ingredient.matchedIngredient?.macro_status === "matched"
+                                ? "flag-badge-complete"
+                                : ""
+                            }`}
+                          >
+                            {ingredient.matchedIngredient == null
+                              ? "Unmatched"
+                              : ingredient.matchedIngredient.macro_status === "matched"
+                                ? "Macros complete"
+                                : "Macros incomplete"}
+                          </span>
+                        </div>
+
+                        {ingredient.candidateIngredients.length > 0 && (
+                          <div className="match-chip-row">
+                            {ingredient.candidateIngredients.map((candidate) => (
+                              <button
+                                key={candidate.id}
+                                type="button"
+                                className={`chip-button ${
+                                  ingredient.ingredientId === candidate.id
+                                    ? "chip-button-active"
+                                    : ""
+                                }`}
+                                onClick={() =>
+                                  applyIngredientMatch(ingredient.clientId, candidate)
+                                }
+                              >
+                                {candidate.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="field-grid match-search-grid">
+                          <label className="field">
+                            <span>Search existing ingredients</span>
+                            <input
+                              value={ingredient.searchTerm}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.clientId,
+                                  "searchTerm",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="Search by ingredient name"
+                            />
+                          </label>
+
+                          <div className="inline-actions">
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => handleIngredientSearch(ingredient)}
+                              disabled={ingredient.isSearching}
+                            >
+                              {ingredient.isSearching ? "Searching..." : "Search"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() => handleCreateIngredient(ingredient)}
+                              disabled={ingredient.isCreatingIngredient}
+                            >
+                              {ingredient.isCreatingIngredient
+                                ? "Creating..."
+                                : "Create ingredient"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {ingredient.searchResults.length > 0 && (
+                          <div className="search-result-list">
+                            {ingredient.searchResults.map((candidate) => (
+                              <button
+                                key={candidate.id}
+                                type="button"
+                                className="search-result-item"
+                                onClick={() =>
+                                  applyIngredientMatch(ingredient.clientId, candidate)
+                                }
+                              >
+                                <strong>{candidate.name}</strong>
+                                <span>
+                                  {candidate.macro_status === "matched"
+                                    ? "Macros complete"
+                                    : candidate.macro_status === "incomplete"
+                                      ? "Macros incomplete"
+                                      : "No macros yet"}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="macro-panel">

@@ -20,6 +20,7 @@ function createBlankIngredientRow(): IngredientFormRow {
   return {
     clientId: nextIngredientRowId(),
     name: "",
+    ingredientId: null,
     quantity: "",
     unit: "",
     correctionStatus: "auto_matched",
@@ -30,6 +31,12 @@ function createBlankIngredientRow(): IngredientFormRow {
     reviewFlags: [],
     needsReview: false,
     showMacros: false,
+    matchedIngredient: null,
+    candidateIngredients: [],
+    searchTerm: "",
+    searchResults: [],
+    isSearching: false,
+    isCreatingIngredient: false,
   }
 }
 
@@ -45,6 +52,7 @@ function buildIngredientRow(ingredient: NonNullable<RecipeDetail["ingredients"]>
   return {
     clientId: nextIngredientRowId(),
     name: ingredient.name ?? "",
+    ingredientId: ingredient.ingredient_id ?? ingredient.id ?? null,
     quantity:
       ingredient.quantity == null || Number.isNaN(ingredient.quantity)
         ? ""
@@ -78,6 +86,12 @@ function buildIngredientRow(ingredient: NonNullable<RecipeDetail["ingredients"]>
       ingredient.override_protein_per_unit != null ||
       ingredient.override_carbs_per_unit != null ||
       ingredient.override_fat_per_unit != null,
+    matchedIngredient: null,
+    candidateIngredients: [],
+    searchTerm: ingredient.name ?? "",
+    searchResults: [],
+    isSearching: false,
+    isCreatingIngredient: false,
   }
 }
 
@@ -204,6 +218,7 @@ function buildPayload(detail: RecipeDetail, ingredients: IngredientFormRow[]): U
 
       return {
         name: ingredient.name.trim(),
+        ingredient_id: ingredient.ingredientId,
         quantity: toOptionalNumber(ingredient.quantity),
         unit: ingredient.unit.trim() || null,
         correction_status: resolveCorrectionStatus(ingredient),
