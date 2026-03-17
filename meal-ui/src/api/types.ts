@@ -78,6 +78,8 @@ export type HomePageProps = {
   selectedRecipeMacros: RecipeMacros | null
   macrosLoading: boolean
   macrosError: string | null
+  onRecipeUpdated: (recipeId: number) => Promise<void>
+  onRecalculateMacros: (recipeId: number) => Promise<void>
 }
 
 export type RecipeDetailPanelProps = {
@@ -89,11 +91,30 @@ export type RecipeDetailPanelProps = {
   macrosLoading: boolean
   macrosError: string | null
   onClearSelection: () => void
+  onRecipeUpdated: (recipeId: number) => Promise<void>
+  onRecalculateMacros: (recipeId: number) => Promise<void>
 }
 
 export type CreateRecipePayload = {
   name: string
   cuisine: string
+  servings: number
+  instructions: string
+  source: string
+  ingredients: {
+    name: string
+    quantity: number | null
+    unit: string | null
+    correction_status: string
+    override_calories_per_unit: number | null
+    override_protein_per_unit: number | null
+    override_carbs_per_unit: number | null
+    override_fat_per_unit: number | null
+  }[]
+}
+
+export type UpdateRecipePayload = {
+  name: string
   servings: number
   instructions: string
   source: string

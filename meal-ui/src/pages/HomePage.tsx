@@ -14,6 +14,8 @@ function HomePage({
   selectedRecipeMacros,
   macrosLoading,
   macrosError,
+  onRecipeUpdated,
+  onRecalculateMacros,
 }: HomePageProps) {
   const sortedRecipes = [...recipes].sort((a, b) =>
     a.name.localeCompare(b.name)
@@ -36,6 +38,8 @@ function HomePage({
         macrosLoading={macrosLoading}
         macrosError={macrosError}
         onClearSelection={() => setSelectedRecipeId(null)}
+        onRecipeUpdated={onRecipeUpdated}
+        onRecalculateMacros={onRecalculateMacros}
       />
 
       {loading && <p>Loading recipes...</p>}

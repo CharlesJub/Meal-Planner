@@ -31,7 +31,78 @@ def create_recipe_logic(*, db, recipe_data):
     db.add(recipe)
     db.flush()
 
-    for ingredient_input in recipe_data.ingredients:
+    _replace_recipe_ingredients(db=db, recipe=recipe, ingredient_inputs=recipe_data.ingredients)
+
+    db.commit()
+
+    return {
+        "message": "Recipe created",
+        "recipe_id": recipe.id,
+        "recipe_name": recipe.name,
+    }
+
+
+def get_recipe_logic(db):
+    results = db.query(Recipe, Cuisine).join(Cuisine).all()
+
+    return [
+        {
+            "id": recipe.id,
+            "name": recipe.name,
+            "cuisine": cuisine.name,
+            "servings": recipe.servings,
+        }
+        for recipe, cuisine in results
+    ]
+
+
+def update_recipe_logic(*, db, recipe_id: int, recipe_data):
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    recipe.name = recipe_data.name.strip()
+    recipe.instructions = recipe_data.instructions
+    recipe.servings = recipe_data.servings
+    recipe.source = recipe_data.source
+
+    _replace_recipe_ingredients(db=db, recipe=recipe, ingredient_inputs=recipe_data.ingredients)
+
+    db.commit()
+
+    return {
+        "message": "Recipe updated",
+        "recipe_id": recipe.id,
+        "recipe_name": recipe.name,
+    }
+
+
+def _resolve_correction_status(
+    *,
+    quantity,
+    requested_status: str | None,
+    override_macros: dict,
+) -> str:
+    normalized_status = (requested_status or "").strip()
+    if normalized_status:
+        return normalized_status
+
+    has_override = any(value is not None for value in override_macros.values())
+    if has_override:
+        return "user_overridden"
+    if quantity is None:
+        return "unresolved"
+    return "auto_matched"
+
+
+def _replace_recipe_ingredients(*, db, recipe, ingredient_inputs):
+    (
+        db.query(RecipeIngredient)
+        .filter(RecipeIngredient.recipe_id == recipe.id)
+        .delete(synchronize_session=False)
+    )
+
+    for ingredient_input in ingredient_inputs:
         raw_ingredient_name = ingredient_input.name.strip().lower()
         ingredient_name = normalize_ingredient_name(raw_ingredient_name)
         ingredient_unit = (ingredient_input.unit or "").strip() or None
@@ -72,46 +143,6 @@ def create_recipe_logic(*, db, recipe_data):
             override_fat_per_unit=ingredient_input.override_fat_per_unit,
         )
         db.add(recipe_ingredient)
-
-    db.commit()
-
-    return {
-        "message": "Recipe created",
-        "recipe_id": recipe.id,
-        "recipe_name": recipe.name,
-    }
-
-
-def get_recipe_logic(db):
-    results = db.query(Recipe, Cuisine).join(Cuisine).all()
-
-    return [
-        {
-            "id": recipe.id,
-            "name": recipe.name,
-            "cuisine": cuisine.name,
-            "servings": recipe.servings,
-        }
-        for recipe, cuisine in results
-    ]
-
-
-def _resolve_correction_status(
-    *,
-    quantity,
-    requested_status: str | None,
-    override_macros: dict,
-) -> str:
-    normalized_status = (requested_status or "").strip()
-    if normalized_status:
-        return normalized_status
-
-    has_override = any(value is not None for value in override_macros.values())
-    if has_override:
-        return "user_overridden"
-    if quantity is None:
-        return "unresolved"
-    return "auto_matched"
 
 
 def get_recipe_bundle_or_404(db, recipe_id: int):

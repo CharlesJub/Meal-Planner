@@ -14,7 +14,7 @@ from app.database import get_db
 from app.db_init import init_database
 from app.models import Cuisine, CuisinePickHistory, Ingredient
 from app.parsing import parse_recipe_text
-from app.schemas import RecipeCreate, RecipeParseRequest
+from app.schemas import RecipeCreate, RecipeParseRequest, RecipeUpdate
 from app.services.ingredient_macro_service import enrich_ingredient_macros
 from app.services.macro_service import get_recipe_macros_logic
 from app.services.parse_review_service import build_parse_review
@@ -22,6 +22,7 @@ from app.services.recipe_service import (
     create_recipe_logic,
     get_recipe_bundle_or_404,
     get_recipe_logic,
+    update_recipe_logic,
 )
 
 app = FastAPI()
@@ -106,6 +107,13 @@ def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
             for ri in recipe_ingredients
         ],
     }
+
+
+@app.put("/recipes/{recipe_id}")
+def update_recipe(
+    recipe_id: int, recipe_data: RecipeUpdate, db: Session = Depends(get_db)
+):
+    return update_recipe_logic(db=db, recipe_id=recipe_id, recipe_data=recipe_data)
 
 
 @app.post("/ingredients/enrich")

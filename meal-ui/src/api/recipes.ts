@@ -4,6 +4,7 @@ import type {
   Recipe,
   RecipeDetail,
   RecipeMacros,
+  UpdateRecipePayload,
 } from "./types"
 
 const API_BASE_URL = "/api"
@@ -70,6 +71,23 @@ export async function createRecipe(
       body: JSON.stringify(payload),
     },
     "Failed to create recipe"
+  )
+}
+
+export async function updateRecipe(
+  recipeId: number,
+  payload: UpdateRecipePayload
+): Promise<{ message: string; recipe_id: number; recipe_name: string }> {
+  return requestJson<{ message: string; recipe_id: number; recipe_name: string }>(
+    `/recipes/${recipeId}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Failed to update recipe"
   )
 }
 

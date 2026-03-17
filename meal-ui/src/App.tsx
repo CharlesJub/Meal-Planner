@@ -21,6 +21,64 @@ export default function App() {
   const [macrosLoading, setMacrosLoading] = useState(false)
   const [macrosError, setMacrosError] = useState<string | null>(null)
 
+  async function loadSelectedRecipe(recipeId: number) {
+    setDetailLoading(true)
+    setMacrosLoading(true)
+    setDetailError(null)
+    setMacrosError(null)
+
+    const [detailResult, macrosResult] = await Promise.allSettled([
+      fetchRecipeDetail(recipeId),
+      fetchRecipeMacros(recipeId),
+    ])
+
+    if (detailResult.status === "fulfilled") {
+      setSelectedRecipeDetail(detailResult.value)
+    } else {
+      console.error(detailResult.reason)
+      setSelectedRecipeDetail(null)
+      setDetailError(
+        detailResult.reason instanceof Error
+          ? detailResult.reason.message
+          : "Unknown error"
+      )
+    }
+
+    if (macrosResult.status === "fulfilled") {
+      setSelectedRecipeMacros(macrosResult.value)
+    } else {
+      console.error(macrosResult.reason)
+      setSelectedRecipeMacros(null)
+      setMacrosError(
+        macrosResult.reason instanceof Error
+          ? macrosResult.reason.message
+          : "Unknown error"
+      )
+    }
+
+    setDetailLoading(false)
+    setMacrosLoading(false)
+  }
+
+  async function refreshSelectedRecipe(recipeId: number) {
+    await loadRecipes()
+    await loadSelectedRecipe(recipeId)
+  }
+
+  async function reloadRecipeMacros(recipeId: number) {
+    try {
+      setMacrosLoading(true)
+      setMacrosError(null)
+      const macros = await fetchRecipeMacros(recipeId)
+      setSelectedRecipeMacros(macros)
+    } catch (err) {
+      console.error(err)
+      setMacrosError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setMacrosLoading(false)
+    }
+  }
+
   async function loadRecipes() {
     try {
       setLoading(true)
@@ -51,50 +109,11 @@ export default function App() {
 
     let cancelled = false
 
-    async function loadSelectedRecipe(recipeId: number) {
-      setDetailLoading(true)
-      setMacrosLoading(true)
-      setDetailError(null)
-      setMacrosError(null)
-
-      const [detailResult, macrosResult] = await Promise.allSettled([
-        fetchRecipeDetail(recipeId),
-        fetchRecipeMacros(recipeId),
-      ])
-
-      if (cancelled) {
-        return
+    loadSelectedRecipe(selectedRecipeId).catch((err) => {
+      if (!cancelled) {
+        console.error(err)
       }
-
-      if (detailResult.status === "fulfilled") {
-        setSelectedRecipeDetail(detailResult.value)
-      } else {
-        console.error(detailResult.reason)
-        setSelectedRecipeDetail(null)
-        setDetailError(
-          detailResult.reason instanceof Error
-            ? detailResult.reason.message
-            : "Unknown error"
-        )
-      }
-
-      if (macrosResult.status === "fulfilled") {
-        setSelectedRecipeMacros(macrosResult.value)
-      } else {
-        console.error(macrosResult.reason)
-        setSelectedRecipeMacros(null)
-        setMacrosError(
-          macrosResult.reason instanceof Error
-            ? macrosResult.reason.message
-            : "Unknown error"
-        )
-      }
-
-      setDetailLoading(false)
-      setMacrosLoading(false)
-    }
-
-    loadSelectedRecipe(selectedRecipeId)
+    })
 
     return () => {
       cancelled = true
@@ -119,6 +138,8 @@ export default function App() {
               selectedRecipeMacros={selectedRecipeMacros}
               macrosLoading={macrosLoading}
               macrosError={macrosError}
+              onRecipeUpdated={refreshSelectedRecipe}
+              onRecalculateMacros={reloadRecipeMacros}
             />
           }
         />
