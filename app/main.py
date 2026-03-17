@@ -242,3 +242,9 @@ def smart_pick_cuisine(db: Session = Depends(get_db)):
             for c in top_candidates
         ],
     }
+
+
+@app.get("/cuisines")
+def get_cuisines(db: Session = Depends(get_db)):
+    cuisines = db.query(Cuisine).order_by(Cuisine.name).all()
+    return [{"id": c.id, "name": c.name} for c in cuisines]
