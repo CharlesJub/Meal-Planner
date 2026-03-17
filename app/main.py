@@ -25,6 +25,12 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:4000",
+        "http://127.0.0.1:4000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -51,7 +57,7 @@ def random_cuisine(db: Session = Depends(get_db)):
 
 @app.post("/recipes")
 def create_recipe(recipe_data: RecipeCreate, db: Session = Depends(get_db)):
-    return create_recipe_logic()
+    return create_recipe_logic(db=db, recipe_data=recipe_data)
 
 
 @app.get("/recipes/{recipe_id}/macros")

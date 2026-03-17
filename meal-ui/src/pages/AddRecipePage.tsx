@@ -1,22 +1,42 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, useNavigate } from "react-router"
-import type { IngredientFormRow } from "../types"
+import type { IngredientFormRow } from "../api/types"
 import { createRecipe } from "../api/recipes"
+import { getCuisines, type Cuisine } from "../api/cuisines"
 
 function AddRecipePage() {
   const navigate = useNavigate()
 
   const [name, setName] = useState("")
-  const [cuisine, setCuisine] = useState("")
+  const [selectedCuisineId, setSelectedCuisineId] = useState("")
   const [servings, setServings] = useState("")
   const [instructions, setInstructions] = useState("")
   const [source, setSource] = useState("")
   const [ingredients, setIngredients] = useState<IngredientFormRow[]>([
     { name: "", quantity: "", unit: "" },
   ])
+  const [cuisines, setCuisines] = useState<Cuisine[]>([])
+  const [cuisineError, setCuisineError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    async function loadCuisines() {
+      try {
+        setCuisineError(null)
+        const data = await getCuisines()
+        setCuisines(data)
+      } catch (err) {
+        console.error(err)
+        setCuisineError(
+          err instanceof Error ? err.message : "Failed to load cuisines"
+        )
+      }
+    }
+
+    loadCuisines()
+  }, [])
 
   function updateIngredient(
     index: number,
@@ -49,6 +69,16 @@ function AddRecipePage() {
       return
     }
 
+    if (!selectedCuisineId || selectedCuisineId === "") {
+      setError("Please select a cuisine for your recipe.")
+      return
+    }
+
+    if (!servings.trim() || Number(servings) <= 0) {
+      setError("Servings must be greater than 0")
+      return
+    }
+
     const cleanedIngredients = ingredients
       .filter((ingredient) => ingredient.name.trim() !== "")
       .map((ingredient) => ({
@@ -69,9 +99,11 @@ function AddRecipePage() {
       setSubmitting(true)
       setError(null)
 
+      const selectedCuisine = cuisines.find(c => c.id === Number(selectedCuisineId))
+      
       const payload = {
         name: name.trim(),
-        cuisine: cuisine.trim(),
+        cuisine: selectedCuisine ? selectedCuisine.name : "",
         servings: Number(servings),
         instructions: instructions.trim(),
         source: source.trim(),
@@ -82,8 +114,41 @@ function AddRecipePage() {
 
       navigate("/")
     } catch (err) {
-      console.error(err)
-      setError(err instanceof Error ? err.message : "Unknown error")
+      console.error('Recipe creation error:', err)
+      
+      // Try to parse the error response for better user feedback
+      if (err instanceof Error) {
+        try {
+          // The error message should be a JSON string from the API
+          const errorData = JSON.parse(err.message)
+          console.log('Parsed error data:', errorData)
+          
+          if (errorData.detail && Array.isArray(errorData.detail)) {
+            const missingFields = errorData.detail
+              .filter((d: any) => d.type === 'missing')
+              .map((d: any) => d.loc[d.loc.length - 1])
+            
+            if (missingFields.includes('cuisine')) {
+              setError("Please select a cuisine for your recipe.")
+            } else if (missingFields.length > 0) {
+              setError(`Missing required fields: ${missingFields.join(', ')}`)
+            } else {
+              setError("Failed to create recipe. Please check your input and try again.")
+            }
+          } else if (errorData.detail) {
+            // Handle non-array error details
+            setError(`Error: ${errorData.detail}`)
+          } else {
+            setError("Failed to create recipe. Please check your input and try again.")
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError)
+          // If JSON parsing fails, just show the original error message
+          setError(err.message || "Failed to create recipe. Please try again.")
+        }
+      } else {
+        setError("Unknown error occurred")
+      }
     } finally {
       setSubmitting(false)
     }
@@ -107,11 +172,22 @@ function AddRecipePage() {
         <div>
           <label>Cuisine</label>
           <br />
-          <input
-            value={cuisine}
-            onChange={(e) => setCuisine(e.target.value)}
-            placeholder="Mexican"
-          />
+          <select
+            value={selectedCuisineId}
+            onChange={(e) => setSelectedCuisineId(e.target.value)}
+          >
+            <option value="">
+              {cuisines.length > 0 ? "Select a cuisine" : "No cuisines available"}
+            </option>
+            {cuisines.map((cuisine) => (
+              <option key={cuisine.id} value={cuisine.id}>
+                {cuisine.name}
+              </option>
+            ))}
+          </select>
+          {cuisineError && (
+            <p style={{ color: "red", marginTop: "6px" }}>{cuisineError}</p>
+          )}
         </div>
 
         <div>

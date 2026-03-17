@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Routes, Route } from "react-router"
 import HomePage from "./pages/HomePage"
 import AddRecipePage from "./pages/AddRecipePage"
-import type { Recipe, RecipeDetail, RecipeMacros } from "./types"
+import type { Recipe, RecipeDetail, RecipeMacros } from "./api/types"
 import { fetchRecipes, fetchRecipeDetail, fetchRecipeMacros } from "./api/recipes"
 
 export default function App() {

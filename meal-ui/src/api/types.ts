@@ -57,3 +57,16 @@ export type HomePageProps = {
   macrosLoading: boolean
   macrosError: string | null
 }
+
+export type CreateRecipePayload = {
+  name: string
+  cuisine_id: number | null
+  servings: number
+  instructions: string
+  source: string
+  ingredients: {
+    name: string
+    quantity: number
+    unit: string
+  }[]
+}

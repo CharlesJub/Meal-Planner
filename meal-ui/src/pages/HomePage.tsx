@@ -1,6 +1,6 @@
 import { Link } from "react-router"
 import RecipeDetailPanel from "../components/RecipeDetailPanel"
-import type { HomePageProps } from "../types"
+import type { HomePageProps } from "../api/types"
 
 function HomePage({
   recipes,
