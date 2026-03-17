@@ -35,6 +35,12 @@ def create_recipe_logic(*, db, recipe_data):
         raw_ingredient_name = ingredient_input.name.strip().lower()
         ingredient_name = normalize_ingredient_name(raw_ingredient_name)
         ingredient_unit = (ingredient_input.unit or "").strip() or None
+        override_macros = {
+            "calories": ingredient_input.override_calories_per_unit,
+            "protein": ingredient_input.override_protein_per_unit,
+            "carbs": ingredient_input.override_carbs_per_unit,
+            "fat": ingredient_input.override_fat_per_unit,
+        }
 
         ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
 
@@ -55,6 +61,15 @@ def create_recipe_logic(*, db, recipe_data):
             ingredient_id=ingredient.id,
             quantity=ingredient_input.quantity,
             unit=ingredient_unit,
+            correction_status=_resolve_correction_status(
+                quantity=ingredient_input.quantity,
+                requested_status=ingredient_input.correction_status,
+                override_macros=override_macros,
+            ),
+            override_calories_per_unit=ingredient_input.override_calories_per_unit,
+            override_protein_per_unit=ingredient_input.override_protein_per_unit,
+            override_carbs_per_unit=ingredient_input.override_carbs_per_unit,
+            override_fat_per_unit=ingredient_input.override_fat_per_unit,
         )
         db.add(recipe_ingredient)
 
@@ -79,6 +94,24 @@ def get_recipe_logic(db):
         }
         for recipe, cuisine in results
     ]
+
+
+def _resolve_correction_status(
+    *,
+    quantity,
+    requested_status: str | None,
+    override_macros: dict,
+) -> str:
+    normalized_status = (requested_status or "").strip()
+    if normalized_status:
+        return normalized_status
+
+    has_override = any(value is not None for value in override_macros.values())
+    if has_override:
+        return "user_overridden"
+    if quantity is None:
+        return "unresolved"
+    return "auto_matched"
 
 
 def get_recipe_bundle_or_404(db, recipe_id: int):

@@ -8,6 +8,7 @@ from app.models import Base
 def init_database():
     Base.metadata.create_all(bind=engine)
     _ensure_nullable_ingredient_fields()
+    _ensure_recipe_ingredient_override_fields()
 
 
 def _ensure_nullable_ingredient_fields():
@@ -99,3 +100,54 @@ def _requires_nullable_migration(conn: sqlite3.Connection) -> bool:
             recipe_ingredient_columns.get("unit") == 1,
         )
     )
+
+
+def _ensure_recipe_ingredient_override_fields():
+    if engine.url.get_backend_name() != "sqlite":
+        return
+
+    database_path = engine.url.database
+    if not database_path:
+        return
+
+    db_file = Path(database_path)
+    if not db_file.is_absolute():
+        db_file = (Path.cwd() / db_file).resolve()
+
+    if not db_file.exists():
+        return
+
+    with sqlite3.connect(db_file) as conn:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(recipe_ingredients)")
+        }
+
+        missing_columns = []
+        if "correction_status" not in columns:
+            missing_columns.append(
+                "ALTER TABLE recipe_ingredients ADD COLUMN correction_status VARCHAR NOT NULL DEFAULT 'auto_matched'"
+            )
+        if "override_calories_per_unit" not in columns:
+            missing_columns.append(
+                "ALTER TABLE recipe_ingredients ADD COLUMN override_calories_per_unit FLOAT"
+            )
+        if "override_protein_per_unit" not in columns:
+            missing_columns.append(
+                "ALTER TABLE recipe_ingredients ADD COLUMN override_protein_per_unit FLOAT"
+            )
+        if "override_carbs_per_unit" not in columns:
+            missing_columns.append(
+                "ALTER TABLE recipe_ingredients ADD COLUMN override_carbs_per_unit FLOAT"
+            )
+        if "override_fat_per_unit" not in columns:
+            missing_columns.append(
+                "ALTER TABLE recipe_ingredients ADD COLUMN override_fat_per_unit FLOAT"
+            )
+
+        if not missing_columns:
+            return
+
+        for statement in missing_columns:
+            conn.execute(statement)
+
+        conn.commit()

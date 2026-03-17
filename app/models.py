@@ -49,6 +49,11 @@ class RecipeIngredient(Base):
 
     quantity = Column(Float, nullable=True)
     unit = Column(String, nullable=True)
+    correction_status = Column(String, nullable=False, default="auto_matched")
+    override_calories_per_unit = Column(Float, nullable=True)
+    override_protein_per_unit = Column(Float, nullable=True)
+    override_carbs_per_unit = Column(Float, nullable=True)
+    override_fat_per_unit = Column(Float, nullable=True)
 
 
 class CuisinePickHistory(Base):

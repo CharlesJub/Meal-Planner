@@ -17,6 +17,7 @@ from app.parsing import parse_recipe_text
 from app.schemas import RecipeCreate, RecipeParseRequest
 from app.services.ingredient_macro_service import enrich_ingredient_macros
 from app.services.macro_service import get_recipe_macros_logic
+from app.services.parse_review_service import build_parse_review
 from app.services.recipe_service import (
     create_recipe_logic,
     get_recipe_bundle_or_404,
@@ -92,9 +93,15 @@ def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
         "source": recipe.source,
         "ingredients": [
             {
+                "id": ri.id,
                 "name": ingredient_map[ri.ingredient_id].name,
                 "quantity": ri.quantity,
                 "unit": ri.unit,
+                "correction_status": ri.correction_status,
+                "override_calories_per_unit": ri.override_calories_per_unit,
+                "override_protein_per_unit": ri.override_protein_per_unit,
+                "override_carbs_per_unit": ri.override_carbs_per_unit,
+                "override_fat_per_unit": ri.override_fat_per_unit,
             }
             for ri in recipe_ingredients
         ],
@@ -160,12 +167,13 @@ def get_ingredients(db: Session = Depends(get_db)):
 
 
 @app.post("/recipes/parse")
-def parse_recipe(request: RecipeParseRequest):
+def parse_recipe(request: RecipeParseRequest, db: Session = Depends(get_db)):
     result = parse_recipe_text(request.text)
 
     if result is None:
         raise HTTPException(status_code=400, detail="No text provided")
 
+    result["review"] = build_parse_review(db, result)
     return result
 
 

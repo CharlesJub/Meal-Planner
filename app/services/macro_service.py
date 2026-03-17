@@ -24,12 +24,8 @@ def get_recipe_macros_logic(db, recipe_id: int):
             )
             continue
 
-        has_missing_macros = (
-            ingredient.calories_per_unit is None
-            or ingredient.protein_per_unit is None
-            or ingredient.carbs_per_unit is None
-            or ingredient.fat_per_unit is None
-        )
+        macros = _resolve_macro_values(recipe_ingredient, ingredient)
+        has_missing_macros = any(value is None for value in macros.values())
 
         if has_missing_macros:
             if ingredient.name not in missing_ingredients:
@@ -42,10 +38,10 @@ def get_recipe_macros_logic(db, recipe_id: int):
                 missing_ingredients.append(ingredient.name)
             continue
 
-        totals["calories"] += ingredient.calories_per_unit * quantity
-        totals["protein"] += ingredient.protein_per_unit * quantity
-        totals["carbs"] += ingredient.carbs_per_unit * quantity
-        totals["fat"] += ingredient.fat_per_unit * quantity
+        totals["calories"] += macros["calories"] * quantity
+        totals["protein"] += macros["protein"] * quantity
+        totals["carbs"] += macros["carbs"] * quantity
+        totals["fat"] += macros["fat"] * quantity
 
     per_serving = {
         "calories": totals["calories"] / recipe.servings if recipe.servings else 0.0,
@@ -65,4 +61,29 @@ def get_recipe_macros_logic(db, recipe_id: int):
         "per_serving": per_serving,
         "missing_ingredients": missing_ingredients,
         "is_complete": len(missing_ingredients) == 0,
+    }
+
+
+def _resolve_macro_values(recipe_ingredient, ingredient) -> dict:
+    return {
+        "calories": (
+            recipe_ingredient.override_calories_per_unit
+            if recipe_ingredient.override_calories_per_unit is not None
+            else ingredient.calories_per_unit
+        ),
+        "protein": (
+            recipe_ingredient.override_protein_per_unit
+            if recipe_ingredient.override_protein_per_unit is not None
+            else ingredient.protein_per_unit
+        ),
+        "carbs": (
+            recipe_ingredient.override_carbs_per_unit
+            if recipe_ingredient.override_carbs_per_unit is not None
+            else ingredient.carbs_per_unit
+        ),
+        "fat": (
+            recipe_ingredient.override_fat_per_unit
+            if recipe_ingredient.override_fat_per_unit is not None
+            else ingredient.fat_per_unit
+        ),
     }
