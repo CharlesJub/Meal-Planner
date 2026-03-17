@@ -14,6 +14,8 @@ from app.database import SessionLocal, get_db
 from app.models import Cuisine, CuisinePickHistory, Ingredient, Recipe, RecipeIngredient
 from app.parsing import parse_recipe_text
 from app.schemas import RecipeCreate, RecipeParseRequest
+from app.services.macro_service import get_recipe_macros_logic
+from app.services.recipe_service import create_recipe_logic, get_recipe_logic
 from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
 
 app = FastAPI()
@@ -49,148 +51,17 @@ def random_cuisine(db: Session = Depends(get_db)):
 
 @app.post("/recipes")
 def create_recipe(recipe_data: RecipeCreate, db: Session = Depends(get_db)):
-    existing_recipe = (
-        db.query(Recipe)
-        .filter(Recipe.name == recipe_data.name.strip())
-        .filter(Recipe.source == recipe_data.source)
-        .first()
-    )
-
-    if existing_recipe is not None:
-        raise HTTPException(status_code=409, detail="Recipe already exists")
-
-    cuisine_name = recipe_data.cuisine.strip()
-    cuisine = db.query(Cuisine).filter_by(name=cuisine_name).first()
-    if cuisine is None:
-        raise HTTPException(status_code=404, detail="Cuisine not found")
-
-    recipe = Recipe(
-        name=recipe_data.name.strip(),
-        cuisine_id=cuisine.id,
-        instructions=recipe_data.instructions,
-        servings=recipe_data.servings,
-        source=recipe_data.source,
-    )
-    db.add(recipe)
-    db.flush()
-
-    for ingredient_input in recipe_data.ingredients:
-        ingredient_name = ingredient_input.name.strip().lower()
-
-        ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
-
-        if ingredient is None:
-            ingredient = Ingredient(
-                name=ingredient_name,
-                unit=ingredient_input.unit.strip(),
-            )
-            db.add(ingredient)
-            db.flush()
-
-        recipe_ingredient = RecipeIngredient(
-            recipe_id=recipe.id,
-            ingredient_id=ingredient.id,
-            quantity=ingredient_input.quantity,
-            unit=ingredient_input.unit.strip(),
-        )
-        db.add(recipe_ingredient)
-
-    db.commit()
-
-    return {
-        "message": "Recipe created",
-        "recipe_id": recipe.id,
-        "recipe_name": recipe.name,
-    }
+    return create_recipe_logic()
 
 
 @app.get("/recipes/{recipe_id}/macros")
 def get_recipe_macros(recipe_id: int, db: Session = Depends(get_db)):
-    recipe = db.query(Recipe).filter_by(id=recipe_id).first()
-    if recipe is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-
-    recipe_ingredients = (
-        db.query(RecipeIngredient).filter(RecipeIngredient.recipe_id == recipe_id).all()
-    )
-
-    ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
-
-    ingredients = db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
-
-    ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
-
-    totals = {
-        "calories": 0.0,
-        "protein": 0.0,
-        "carbs": 0.0,
-        "fat": 0.0,
-    }
-
-    missing_ingredients = []
-
-    for recipe_ingredient in recipe_ingredients:
-        ingredient = ingredient_map.get(recipe_ingredient.ingredient_id)
-
-        if ingredient is None:
-            missing_ingredients.append(
-                f"unknown ingredient id {recipe_ingredient.ingredient_id}"
-            )
-            continue
-
-        has_missing_macros = (
-            ingredient.calories_per_unit is None
-            or ingredient.protein_per_unit is None
-            or ingredient.carbs_per_unit is None
-            or ingredient.fat_per_unit is None
-        )
-
-        if has_missing_macros:
-            if ingredient.name not in missing_ingredients:
-                missing_ingredients.append(ingredient.name)
-            continue
-
-        quantity = recipe_ingredient.quantity
-
-        totals["calories"] += ingredient.calories_per_unit * quantity
-        totals["protein"] += ingredient.protein_per_unit * quantity
-        totals["carbs"] += ingredient.carbs_per_unit * quantity
-        totals["fat"] += ingredient.fat_per_unit * quantity
-
-    per_serving = {
-        "calories": totals["calories"] / recipe.servings if recipe.servings else 0.0,
-        "protein": totals["protein"] / recipe.servings if recipe.servings else 0.0,
-        "carbs": totals["carbs"] / recipe.servings if recipe.servings else 0.0,
-        "fat": totals["fat"] / recipe.servings if recipe.servings else 0.0,
-    }
-
-    totals = {key: round(value, 2) for key, value in totals.items()}
-    per_serving = {key: round(value, 2) for key, value in per_serving.items()}
-
-    return {
-        "recipe_id": recipe.id,
-        "recipe_name": recipe.name,
-        "servings": recipe.servings,
-        "recipe_totals": totals,
-        "per_serving": per_serving,
-        "missing_ingredients": missing_ingredients,
-        "is_complete": len(missing_ingredients) == 0,
-    }
+    return get_recipe_macros_logic(db, recipe_id)
 
 
 @app.get("/recipes")
 def get_recipes(db: Session = Depends(get_db)):
-    results = db.query(Recipe, Cuisine).join(Cuisine).all()
-
-    return [
-        {
-            "id": recipe.id,
-            "name": recipe.name,
-            "cuisine": cuisine.name,
-            "servings": recipe.servings,
-        }
-        for recipe, cuisine in results
-    ]
+    return get_recipe_logic(db)
 
 
 @app.get("/recipes/{recipe_id}")
