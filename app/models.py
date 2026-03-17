@@ -32,7 +32,7 @@ class Ingredient(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
-    unit = Column(String, nullable=False)
+    unit = Column(String, nullable=True)
     calories_per_unit = Column(Float, nullable=True)
     protein_per_unit = Column(Float, nullable=True)
     carbs_per_unit = Column(Float, nullable=True)
@@ -47,8 +47,8 @@ class RecipeIngredient(Base):
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     ingredient_id = Column(Integer, ForeignKey("ingredients.id"), nullable=False)
 
-    quantity = Column(Float, nullable=False)
-    unit = Column(String, nullable=False)
+    quantity = Column(Float, nullable=True)
+    unit = Column(String, nullable=True)
 
 
 class CuisinePickHistory(Base):

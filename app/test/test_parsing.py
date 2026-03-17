@@ -108,6 +108,54 @@ cooked through. Transfer to a plate, cover with foil and leave
 to rest for a few minutes before serving.
 """
 
+MUSSAKHAN = """MUSSAKHAN
+Mussakhan is a classic Palestinian dish eaten in villages
+throughout the region. Traditionally the meat is laid out on a
+giant piece of bread with the flavoursome roasting juices
+poured over it, so that they seep into the dough. This platter is
+then placed on the table for everyone to pull off sections of
+bread and chicken: a wonderful sharing meal. As it can be
+challenging to find such large pieces of flatbread in most
+shops, I’ve suggested using individual naan breads instead…
+but, of course, if you can, seek out traditional sheets of Arabic
+taboon bread from Middle Eastern stores. If you are avoiding
+gluten, the chicken is just as delicious on its own, or served
+with rice or a salad.
+Serves 4
+1kg chicken thighs and drumsticks, skin on
+3 tablespoons extra virgin olive oil, plus more to serve
+½ teaspoon ground cumin
+½ teaspoon ground allspice
+¼ teaspoon ground cinnamon
+1 ½ tablespoons sumac, plus more to dust
+juice of 1 lemon
+4 garlic cloves, crushed
+sea salt and freshly ground black pepper
+2 large red onions (about 500g), finely sliced into half-moons
+2 tablespoons pine nuts
+1 tablespoon light olive oil
+naan or Arabic taboon bread, to serve
+chopped parsley leavesSlash the flesh of each piece of chicken diagonally a few
+times, around 2cm apart, and then place the meat in a large
+bowl or plastic food container.
+Pour over the extra virgin olive oil, spices, lemon juice, garlic, 1
+½ teaspoons salt and ¼ teaspoon pepper and rub this into
+the meat. Add the red onions and toss everything together
+well. Cover and leave to marinate in the fridge for 1–3 hours.
+When you are ready to cook the chicken, preheat the oven to
+190°C/fan 170°C/Gas 5.
+Transfer the meat to a baking tray and roast for about 35
+minutes, or until the chicken juices run clear when pierced at
+their thickest part. Once the chicken is cooked, cover in foil
+and leave to rest while you prepare the toppings.
+Fry the pine nuts in the light olive oil for a minute or so until
+they turn golden brown, then tip on to kitchen paper to drain.
+To serve, toast the naan or taboon bread and then place the
+chicken and red onion on top. Finish with a smattering of
+pine nuts, sumac and chopped parsley. Drizzle over any
+remaining roasting juices so they soak into the bread, then
+sprinkle over a little more extra virgin olive oil."""
+
 
 class ParseRecipeTextTests(unittest.TestCase):
     def test_parses_structured_recipe_with_sections_and_unicode_style_fractions(self):
@@ -203,14 +251,30 @@ class ParseRecipeTextTests(unittest.TestCase):
             result["instructions"],
         )
 
-    def test_parses_chicken_shawarma_recipe(self):
-        result = parse_recipe_text(CHICKEN_SHAWARMA)
+    def test_parses_mussakhan_recipe(self):
+        result = parse_recipe_text(MUSSAKHAN)
 
         self.assertIsNotNone(result)
-        self.assertEqual(result["name"], "Chicken shawarma")
+        self.assertEqual(result["name"], "MUSSAKHAN")
         self.assertEqual(result["servings"], 4)
-        self.assertGreaterEqual(len(result["ingredients"]), 5)
-        self.assertIn("Place the chicken in a large bowl", result["instructions"])
+        self.assertGreaterEqual(len(result["ingredients"]), 14)
+        self.assertIn(
+            {"name": "juice of 1 lemon", "quantity": None, "unit": ""},
+            result["ingredients"],
+        )
+        self.assertIn(
+            {
+                "name": "sea salt and freshly ground black pepper",
+                "quantity": None,
+                "unit": "",
+            },
+            result["ingredients"],
+        )
+        self.assertIn(
+            {"name": "chopped parsley leaves", "quantity": None, "unit": ""},
+            result["ingredients"],
+        )
+        self.assertIn("place the meat in a large", result["instructions"].lower())
 
 
 if __name__ == "__main__":

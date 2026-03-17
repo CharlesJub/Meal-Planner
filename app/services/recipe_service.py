@@ -34,16 +34,19 @@ def create_recipe_logic(*, db, recipe_data):
     for ingredient_input in recipe_data.ingredients:
         raw_ingredient_name = ingredient_input.name.strip().lower()
         ingredient_name = normalize_ingredient_name(raw_ingredient_name)
+        ingredient_unit = (ingredient_input.unit or "").strip() or None
 
         ingredient = db.query(Ingredient).filter_by(name=ingredient_name).first()
 
         if ingredient is None:
             ingredient = Ingredient(
                 name=ingredient_name,
-                unit=ingredient_input.unit.strip(),
+                unit=ingredient_unit,
             )
             db.add(ingredient)
             db.flush()
+        elif ingredient.unit is None and ingredient_unit is not None:
+            ingredient.unit = ingredient_unit
 
         try_enrich_ingredient_macros(ingredient)
 
@@ -51,7 +54,7 @@ def create_recipe_logic(*, db, recipe_data):
             recipe_id=recipe.id,
             ingredient_id=ingredient.id,
             quantity=ingredient_input.quantity,
-            unit=ingredient_input.unit.strip(),
+            unit=ingredient_unit,
         )
         db.add(recipe_ingredient)
 

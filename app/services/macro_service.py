@@ -37,6 +37,10 @@ def get_recipe_macros_logic(db, recipe_id: int):
             continue
 
         quantity = recipe_ingredient.quantity
+        if quantity is None:
+            if ingredient.name not in missing_ingredients:
+                missing_ingredients.append(ingredient.name)
+            continue
 
         totals["calories"] += ingredient.calories_per_unit * quantity
         totals["protein"] += ingredient.protein_per_unit * quantity

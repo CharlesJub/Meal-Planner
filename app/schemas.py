@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 class RecipeIngredientInput(BaseModel):
     name: str
-    quantity: float
-    unit: str
+    quantity: float | None = None
+    unit: str | None = None
 
 
 class RecipeCreate(BaseModel):

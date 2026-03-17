@@ -5,6 +5,7 @@
 * [ ] Option to paste in entire text of recipe to parse in whole. I'm too lazy to parse out everything manually
 * [ ] No option to edit recipies
 * [ ] No option to edit recipe macros / ingredient selection
+* [ ] Add auto-scroll to details pane when selection is made
 
 Current limitation to using recipe creator:
 

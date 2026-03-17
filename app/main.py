@@ -11,6 +11,7 @@ from app.cuisine_score import (
     score_cuisine,
 )
 from app.database import get_db
+from app.db_init import init_database
 from app.models import Cuisine, CuisinePickHistory, Ingredient
 from app.parsing import parse_recipe_text
 from app.schemas import RecipeCreate, RecipeParseRequest
@@ -40,6 +41,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+init_database()
 
 
 @app.get("/")

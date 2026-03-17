@@ -75,6 +75,7 @@ INSTRUCTION_PREFIXES = (
     "saute ",
     "season ",
     "serve ",
+    "slash ",
     "shred ",
     "simmer ",
     "stir ",
@@ -246,6 +247,53 @@ def is_instruction_line(line: str) -> bool:
     return lowered.startswith(INSTRUCTION_PREFIXES)
 
 
+def split_embedded_instruction(line: str) -> tuple[str, str] | None:
+    lowered = line.lower()
+    matches = []
+
+    for prefix in INSTRUCTION_PREFIXES:
+        search_start = 1 if lowered.startswith(prefix) else 0
+        index = lowered.find(prefix, search_start)
+        if index > 0:
+            matches.append(index)
+
+    if not matches:
+        return None
+
+    split_index = min(matches)
+    ingredient_part = line[:split_index].strip(" ,.;:")
+    instruction_part = line[split_index:].strip()
+    if not ingredient_part or not instruction_part:
+        return None
+
+    return ingredient_part, instruction_part
+
+
+def is_likely_bare_ingredient_line(line: str) -> bool:
+    lowered = line.lower()
+    if "to taste" in lowered:
+        return False
+    if is_instruction_line(line):
+        return False
+    if line.endswith((".", "!", "?")):
+        return False
+    if len(line.split()) > 8:
+        return False
+    return True
+
+
+def parse_bare_ingredient_line(line: str):
+    name = line.strip(" ,.;:").lower()
+    if not name:
+        return None
+
+    return {
+        "name": name,
+        "quantity": None,
+        "unit": "",
+    }
+
+
 def parse_recipe_text(text: str):
     raw_lines = [normalize_line(line) for line in text.splitlines()]
     lines = [line for line in raw_lines if line]
@@ -284,13 +332,37 @@ def parse_recipe_text(text: str):
             unparsed_lines.append(line)
             continue
 
+        embedded_instruction = split_embedded_instruction(line)
+        if embedded_instruction is not None and current_section != "instructions":
+            ingredient_line, instruction_line = embedded_instruction
+            bare_ingredient = (
+                parse_ingredient_line(ingredient_line)
+                or (
+                    parse_bare_ingredient_line(ingredient_line)
+                    if current_section == "ingredients"
+                    and not saw_explicit_ingredients_section
+                    and is_likely_bare_ingredient_line(ingredient_line)
+                    else None
+                )
+            )
+            if bare_ingredient is not None:
+                ingredients.append(bare_ingredient)
+                current_section = "instructions"
+                instructions_lines.append(instruction_line)
+                continue
+
         ingredient = parse_ingredient_line(line)
 
         if current_section == "ingredients":
             if ingredient is not None:
                 ingredients.append(ingredient)
             else:
-                if saw_explicit_ingredients_section:
+                if (
+                    not saw_explicit_ingredients_section
+                    and is_likely_bare_ingredient_line(line)
+                ):
+                    ingredients.append(parse_bare_ingredient_line(line))
+                elif saw_explicit_ingredients_section:
                     unparsed_lines.append(line)
                 elif is_instruction_line(line):
                     current_section = "instructions"

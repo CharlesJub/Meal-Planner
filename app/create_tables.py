@@ -1,6 +1,5 @@
-from app.database import engine
-from app.models import Base
+from app.db_init import init_database
 
-Base.metadata.create_all(bind=engine)
+init_database()
 
 print("Tables created")
