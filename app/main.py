@@ -14,9 +14,9 @@ from app.database import SessionLocal, get_db
 from app.models import Cuisine, CuisinePickHistory, Ingredient, Recipe, RecipeIngredient
 from app.parsing import parse_recipe_text
 from app.schemas import RecipeCreate, RecipeParseRequest
+from app.services.ingredient_macro_service import enrich_ingredient_macros
 from app.services.macro_service import get_recipe_macros_logic
 from app.services.recipe_service import create_recipe_logic, get_recipe_logic
-from app.usda import choose_usda_match, extract_macros_per_gram, search_usda_foods
 
 app = FastAPI()
 
@@ -129,34 +129,13 @@ def enrich_ingredients(db: Session = Depends(get_db)):
 
     try:
         for ingredient in ingredients:
-            results = search_usda_foods(ingredient.name, prefer_generic=True)
-
-            if not results:
-                results = search_usda_foods(ingredient.name, prefer_generic=False)
-
-            match = choose_usda_match(results, ingredient.name)
-            if match is None:
+            enriched_ingredient = enrich_ingredient_macros(ingredient)
+            if enriched_ingredient is None:
                 ingredients_skipped += 1
                 continue
-
-            macros = extract_macros_per_gram(match)
-            if macros is None:
-                ingredients_skipped += 1
-                continue
-
-            ingredient.calories_per_unit = macros["calories_per_unit"]
-            ingredient.protein_per_unit = macros["protein_per_unit"]
-            ingredient.carbs_per_unit = macros["carbs_per_unit"]
-            ingredient.fat_per_unit = macros["fat_per_unit"]
 
             ingredients_updated += 1
-            enriched.append(
-                {
-                    "ingredient": ingredient.name,
-                    "usda_match": match.get("description"),
-                    "data_type": match.get("dataType"),
-                }
-            )
+            enriched.append(enriched_ingredient)
 
         db.commit()
 

@@ -1,6 +1,7 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import HTTPException
 
-from app.models import Cuisine, CuisinePickHistory, Ingredient, Recipe, RecipeIngredient
+from app.models import Cuisine, Ingredient, Recipe, RecipeIngredient
+from app.services.ingredient_macro_service import try_enrich_ingredient_macros
 
 
 def create_recipe_logic(*, db, recipe_data):
@@ -41,6 +42,8 @@ def create_recipe_logic(*, db, recipe_data):
             )
             db.add(ingredient)
             db.flush()
+
+        try_enrich_ingredient_macros(ingredient)
 
         recipe_ingredient = RecipeIngredient(
             recipe_id=recipe.id,
