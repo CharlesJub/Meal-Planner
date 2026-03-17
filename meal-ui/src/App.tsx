@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Routes, Route, Link } from "react-router"
 import RecipeDetailPanel from "./RecipeDetailPanel"
 
 type Recipe = {
@@ -41,7 +42,108 @@ type RecipeMacros = {
   is_complete: boolean
 }
 
+type HomePageProps = {
+  recipes: Recipe[]
+  loading: boolean
+  error: string | null
+  selectedRecipeId: number | null
+  setSelectedRecipeId: React.Dispatch<React.SetStateAction<number | null>>
+  selectedRecipeDetail: RecipeDetail | null
+  detailLoading: boolean
+  detailError: string | null
+  selectedRecipeMacros: RecipeMacros | null
+  macrosLoading: boolean
+  macrosError: string | null
+}
 
+function HomePage({
+  recipes,
+  loading,
+  error,
+  selectedRecipeId,
+  setSelectedRecipeId,
+  selectedRecipeDetail,
+  detailLoading,
+  detailError,
+  selectedRecipeMacros,
+  macrosLoading,
+  macrosError,
+}: HomePageProps) {
+  const sortedRecipes = [...recipes].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  )
+
+  return (
+    <div>
+      <h1>Meal Planner</h1>
+
+      <div style={{ marginBottom: "16px" }}>
+        <Link to="/recipes/new">Add Recipe</Link>
+      </div>
+
+      <RecipeDetailPanel
+        selectedRecipeId={selectedRecipeId}
+        selectedRecipeDetail={selectedRecipeDetail}
+        detailLoading={detailLoading}
+        detailError={detailError}
+        selectedRecipeMacros={selectedRecipeMacros}
+        macrosLoading={macrosLoading}
+        macrosError={macrosError}
+        onClearSelection={() => setSelectedRecipeId(null)}
+      />
+
+      {loading && <p>Loading recipes...</p>}
+      {error && <p>Error: {error}</p>}
+
+      {!loading && !error && (
+        <>
+          <h2>Recipes ({recipes.length})</h2>
+
+          {recipes.length === 0 ? (
+            <p>No recipes found.</p>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {sortedRecipes.map((recipe) => (
+                <li
+                  key={recipe.id}
+                  onClick={() => setSelectedRecipeId(recipe.id)}
+                  className={`recipe-card ${
+                    selectedRecipeId === recipe.id ? "selected" : ""
+                  }`}
+                  style={{
+                    padding: "12px",
+                    borderRadius: "6px",
+                    marginBottom: "10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <strong>{recipe.name}</strong>
+                  {recipe.cuisine && <div>{recipe.cuisine}</div>}
+                  {recipe.servings != null && (
+                    <div>{recipe.servings} servings</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function AddRecipePage() {
+  return (
+    <div>
+      <h1>Add Recipe</h1>
+      <p>Form goes here.</p>
+
+      <div style={{ marginTop: "16px" }}>
+        <Link to="/">Back to recipes</Link>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
@@ -58,10 +160,6 @@ export default function App() {
     useState<RecipeMacros | null>(null)
   const [macrosLoading, setMacrosLoading] = useState(false)
   const [macrosError, setMacrosError] = useState<string | null>(null)
-
-  const sortedRecipes = [...recipes].sort((a, b) =>
-    a.name.localeCompare(b.name)
-  )
 
   useEffect(() => {
     async function loadRecipes() {
@@ -145,53 +243,30 @@ export default function App() {
 
     loadRecipeMacros(selectedRecipeId)
   }, [selectedRecipeId])
+
   return (
-    <main style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>Meal Planner</h1>
-
-      <RecipeDetailPanel
-        selectedRecipeId={selectedRecipeId}
-        selectedRecipeDetail={selectedRecipeDetail}
-        detailLoading={detailLoading}
-        detailError={detailError}
-        selectedRecipeMacros={selectedRecipeMacros}
-        macrosLoading={macrosLoading}
-        macrosError={macrosError}
-        onClearSelection={() => setSelectedRecipeId(null)}
-      />
-
-      {loading && <p>Loading recipes...</p>}
-      {error && <p>Error: {error}</p>}
-
-      {!loading && !error && (
-        <>
-          <h2>Recipes ({recipes.length})</h2>
-
-          {recipes.length === 0 ? (
-            <p>No recipes found.</p>
-          ) : (
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              {sortedRecipes.map((recipe) => (
-                <li
-                  key={recipe.id}
-                  onClick={() => setSelectedRecipeId(recipe.id)}
-                  className={`recipe-card ${selectedRecipeId === recipe.id ? "selected" : ""}`}
-                  style={{
-                    padding: "12px",
-                    borderRadius: "6px",
-                    marginBottom: "10px",
-                    cursor: "pointer",
-                  }}
-                >
-                  <strong>{recipe.name}</strong>
-                  {recipe.cuisine && <div>{recipe.cuisine}</div>}
-                  {recipe.servings != null && <div>{recipe.servings} servings</div>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
+    <main style={{ padding: "2rem", fontFamily: "sans-serif", flex: 1 }}>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <HomePage
+              recipes={recipes}
+              loading={loading}
+              error={error}
+              selectedRecipeId={selectedRecipeId}
+              setSelectedRecipeId={setSelectedRecipeId}
+              selectedRecipeDetail={selectedRecipeDetail}
+              detailLoading={detailLoading}
+              detailError={detailError}
+              selectedRecipeMacros={selectedRecipeMacros}
+              macrosLoading={macrosLoading}
+              macrosError={macrosError}
+            />
+          }
+        />
+        <Route path="/recipes/new" element={<AddRecipePage />} />
+      </Routes>
     </main>
   )
 }

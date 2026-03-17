@@ -74,6 +74,7 @@
 .recipe-card.selected {
   background: rgba(100, 150, 255, 0.2);
 }
+
 body {
   margin: 0;
 }
