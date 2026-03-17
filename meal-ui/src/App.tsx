@@ -21,19 +21,20 @@ export default function App() {
   const [macrosLoading, setMacrosLoading] = useState(false)
   const [macrosError, setMacrosError] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function loadRecipes() {
-      try {
-        const json = await fetchRecipes()
-        setRecipes(json)
-      } catch (err) {
-        console.error(err)
-        setError(err instanceof Error ? err.message : "Unknown error")
-      } finally {
-        setLoading(false)
-      }
+  async function loadRecipes() {
+    try {
+      setLoading(true)
+      const json = await fetchRecipes()
+      setRecipes(json)
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : "Unknown error")
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     loadRecipes()
   }, [])
 
@@ -121,7 +122,17 @@ export default function App() {
             />
           }
         />
-        <Route path="/recipes/new" element={<AddRecipePage />} />
+        <Route
+          path="/recipes/new"
+          element={
+            <AddRecipePage
+              onRecipeCreated={(recipeId) => {
+                setSelectedRecipeId(recipeId)
+                void loadRecipes()
+              }}
+            />
+          }
+        />
       </Routes>
     </main>
   )

@@ -6,9 +6,15 @@ export type Recipe = {
 }
 
 export type Ingredient = {
+  id?: number
   name: string
   quantity?: number | null
   unit?: string | null
+  correction_status?: string | null
+  override_calories_per_unit?: number | null
+  override_protein_per_unit?: number | null
+  override_carbs_per_unit?: number | null
+  override_fat_per_unit?: number | null
 }
 
 export type RecipeDetail = {
@@ -21,10 +27,26 @@ export type RecipeDetail = {
   ingredients?: Ingredient[]
 }
 
+export type ReviewFlag =
+  | "missing_quantity"
+  | "missing_unit"
+  | "missing_macro_source"
+  | "missing_macro_data"
+  | "partial_macro_override"
+
 export type IngredientFormRow = {
+  clientId: string
   name: string
   quantity: string
   unit: string
+  correctionStatus: string
+  overrideCaloriesPerUnit: string
+  overrideProteinPerUnit: string
+  overrideCarbsPerUnit: string
+  overrideFatPerUnit: string
+  reviewFlags: ReviewFlag[]
+  needsReview: boolean
+  showMacros: boolean
 }
 
 export type MacroSet = {
@@ -77,15 +99,40 @@ export type CreateRecipePayload = {
   source: string
   ingredients: {
     name: string
-    quantity: number
-    unit: string
+    quantity: number | null
+    unit: string | null
+    correction_status: string
+    override_calories_per_unit: number | null
+    override_protein_per_unit: number | null
+    override_carbs_per_unit: number | null
+    override_fat_per_unit: number | null
   }[]
 }
 
 export type ParsedRecipeIngredient = {
   name: string
-  quantity: number
-  unit: string
+  quantity: number | null
+  unit: string | null
+}
+
+export type ParsedIngredientReview = {
+  name: string
+  quantity: number | null
+  unit: string | null
+  flags: ReviewFlag[]
+  needs_review: boolean
+  suggested_status: string
+}
+
+export type ParsedRecipeReview = {
+  needs_human_review: boolean
+  ingredient_reviews: ParsedIngredientReview[]
+  unparsed_lines: string[]
+  summary: {
+    ingredient_count: number
+    ingredients_needing_review: number
+    unparsed_line_count: number
+  }
 }
 
 export type ParsedRecipe = {
@@ -94,4 +141,5 @@ export type ParsedRecipe = {
   ingredients: ParsedRecipeIngredient[]
   unparsed_lines: string[]
   instructions: string
+  review: ParsedRecipeReview
 }
