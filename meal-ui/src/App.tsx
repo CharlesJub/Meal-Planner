@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router"
 import HomePage from "./pages/HomePage"
 import AddRecipePage from "./pages/AddRecipePage"
 import type { Recipe, RecipeDetail, RecipeMacros } from "./types"
+import { fetchRecipes, fetchRecipeDetail, fetchRecipeMacros } from "./api/recipes"
 
 export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
@@ -23,12 +24,7 @@ export default function App() {
   useEffect(() => {
     async function loadRecipes() {
       try {
-        const res = await fetch("http://127.0.0.1:8000/recipes")
-        if (!res.ok) {
-          throw new Error(`Request failed: ${res.status}`)
-        }
-
-        const json = await res.json()
+        const json = await fetchRecipes()
         setRecipes(json)
       } catch (err) {
         console.error(err)
@@ -47,12 +43,7 @@ export default function App() {
         setDetailLoading(true)
         setDetailError(null)
 
-        const res = await fetch(`http://127.0.0.1:8000/recipes/${recipeId}`)
-        if (!res.ok) {
-          throw new Error(`Detail request failed: ${res.status}`)
-        }
-
-        const json = await res.json()
+        const json = await fetchRecipeDetail(recipeId)
         setSelectedRecipeDetail(json)
       } catch (err) {
         console.error(err)
@@ -73,37 +64,30 @@ export default function App() {
   }, [selectedRecipeId])
 
   useEffect(() => {
-    async function loadRecipeMacros(recipeId: number) {
-      try {
-        setMacrosLoading(true)
-        setMacrosError(null)
-
-        const res = await fetch(
-          `http://127.0.0.1:8000/recipes/${recipeId}/macros`
-        )
-        if (!res.ok) {
-          throw new Error(`Macros request failed: ${res.status}`)
-        }
-
-        const json = await res.json()
-        setSelectedRecipeMacros(json)
-      } catch (err) {
-        console.error(err)
-        setMacrosError(err instanceof Error ? err.message : "Unknown error")
-        setSelectedRecipeMacros(null)
-      } finally {
-        setMacrosLoading(false)
-      }
-    }
-
-    if (selectedRecipeId == null) {
-      setSelectedRecipeMacros(null)
+  async function loadRecipeMacros(recipeId: number) {
+    try {
+      setMacrosLoading(true)
       setMacrosError(null)
-      return
-    }
 
-    loadRecipeMacros(selectedRecipeId)
-  }, [selectedRecipeId])
+      const json = await fetchRecipeMacros(recipeId)
+      setSelectedRecipeMacros(json)
+    } catch (err) {
+      console.error(err)
+      setMacrosError(err instanceof Error ? err.message : "Unknown error")
+      setSelectedRecipeMacros(null)
+    } finally {
+      setMacrosLoading(false)
+    }
+  }
+
+  if (selectedRecipeId == null) {
+    setSelectedRecipeMacros(null)
+    setMacrosError(null)
+    return
+  }
+
+  loadRecipeMacros(selectedRecipeId)
+}, [selectedRecipeId])
 
   return (
     <main style={{ padding: "2rem", fontFamily: "sans-serif", flex: 1 }}>

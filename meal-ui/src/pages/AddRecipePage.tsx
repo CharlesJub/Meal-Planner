@@ -2,6 +2,7 @@ import { useState } from "react"
 import type { FormEvent } from "react"
 import { Link, useNavigate } from "react-router"
 import type { IngredientFormRow } from "../types"
+import { createRecipe } from "../api/recipes"
 
 function AddRecipePage() {
   const navigate = useNavigate()
@@ -77,20 +78,7 @@ function AddRecipePage() {
         ingredients: cleanedIngredients,
       }
 
-      const res = await fetch("http://127.0.0.1:8000/recipes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        console.error(data)
-        throw new Error(JSON.stringify(data))
-      }
+      await createRecipe(payload)
 
       navigate("/")
     } catch (err) {
