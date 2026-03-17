@@ -1,46 +1,4 @@
-type Ingredient = {
-  name: string
-  quantity?: number | null
-  unit?: string | null
-}
-
-type MacroSet = {
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-}
-
-type RecipeMacros = {
-  recipe_id: number
-  recipe_name: string
-  servings: number
-  recipe_totals: MacroSet
-  per_serving: MacroSet
-  missing_ingredients: string[]
-  is_complete: boolean
-}
-
-type RecipeDetail = {
-  id: number
-  name: string
-  cuisine?: string | null
-  servings?: number | null
-  instructions?: string | null
-  source?: string | null
-  ingredients?: Ingredient[]
-}
-
-type RecipeDetailPanelProps = {
-  selectedRecipeId: number | null
-  selectedRecipeDetail: RecipeDetail | null
-  detailLoading: boolean
-  detailError: string | null
-  selectedRecipeMacros: RecipeMacros | null
-  macrosLoading: boolean
-  macrosError: string | null
-  onClearSelection: () => void
-}
+import type { RecipeDetailPanelProps } from "../api/types"
 
 export default function RecipeDetailPanel({
   selectedRecipeId,

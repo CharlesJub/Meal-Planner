@@ -2,8 +2,43 @@ import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, useNavigate } from "react-router"
 import type { IngredientFormRow } from "../api/types"
-import { createRecipe } from "../api/recipes"
+import { ApiError, createRecipe } from "../api/recipes"
 import { getCuisines, type Cuisine } from "../api/cuisines"
+
+type ValidationDetail = {
+  type?: string
+  loc?: Array<string | number>
+}
+
+function getRecipeErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (Array.isArray(err.detail)) {
+      const missingFields = err.detail
+        .filter(
+          (detail): detail is ValidationDetail =>
+            typeof detail === "object" && detail !== null
+        )
+        .filter((detail) => detail.type === "missing" && Array.isArray(detail.loc))
+        .map((detail) => String(detail.loc?.[detail.loc.length - 1]))
+
+      if (missingFields.includes("cuisine")) {
+        return "Please select a cuisine for your recipe."
+      }
+
+      if (missingFields.length > 0) {
+        return `Missing required fields: ${missingFields.join(", ")}`
+      }
+    }
+
+    if (typeof err.detail === "string" && err.detail.trim()) {
+      return `Error: ${err.detail}`
+    }
+
+    return err.message
+  }
+
+  return err instanceof Error ? err.message : "Unknown error occurred"
+}
 
 function AddRecipePage() {
   const navigate = useNavigate()
@@ -99,8 +134,10 @@ function AddRecipePage() {
       setSubmitting(true)
       setError(null)
 
-      const selectedCuisine = cuisines.find(c => c.id === Number(selectedCuisineId))
-      
+      const selectedCuisine = cuisines.find(
+        (c) => c.id === Number(selectedCuisineId)
+      )
+
       const payload = {
         name: name.trim(),
         cuisine: selectedCuisine ? selectedCuisine.name : "",
@@ -114,41 +151,8 @@ function AddRecipePage() {
 
       navigate("/")
     } catch (err) {
-      console.error('Recipe creation error:', err)
-      
-      // Try to parse the error response for better user feedback
-      if (err instanceof Error) {
-        try {
-          // The error message should be a JSON string from the API
-          const errorData = JSON.parse(err.message)
-          console.log('Parsed error data:', errorData)
-          
-          if (errorData.detail && Array.isArray(errorData.detail)) {
-            const missingFields = errorData.detail
-              .filter((d: any) => d.type === 'missing')
-              .map((d: any) => d.loc[d.loc.length - 1])
-            
-            if (missingFields.includes('cuisine')) {
-              setError("Please select a cuisine for your recipe.")
-            } else if (missingFields.length > 0) {
-              setError(`Missing required fields: ${missingFields.join(', ')}`)
-            } else {
-              setError("Failed to create recipe. Please check your input and try again.")
-            }
-          } else if (errorData.detail) {
-            // Handle non-array error details
-            setError(`Error: ${errorData.detail}`)
-          } else {
-            setError("Failed to create recipe. Please check your input and try again.")
-          }
-        } catch (parseError) {
-          console.error('Error parsing error response:', parseError)
-          // If JSON parsing fails, just show the original error message
-          setError(err.message || "Failed to create recipe. Please try again.")
-        }
-      } else {
-        setError("Unknown error occurred")
-      }
+      console.error("Recipe creation error:", err)
+      setError(getRecipeErrorMessage(err))
     } finally {
       setSubmitting(false)
     }

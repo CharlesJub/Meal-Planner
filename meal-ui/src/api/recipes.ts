@@ -1,89 +1,75 @@
-import type { Recipe, RecipeDetail, RecipeMacros, Ingredient } from "./types"
+import type {
+  CreateRecipePayload,
+  Recipe,
+  RecipeDetail,
+  RecipeMacros,
+} from "./types"
 
 const API_BASE_URL = "/api"
 
+export class ApiError extends Error {
+  status: number
+  detail: unknown
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.detail = detail
+  }
+}
+
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  fallbackMessage = "Request failed"
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, init)
+  const isJson = res.headers.get("content-type")?.includes("application/json")
+  const data = isJson ? await res.json() : null
+
+  if (!res.ok) {
+    const detail = data && typeof data === "object" ? data.detail : data
+    throw new ApiError(fallbackMessage, res.status, detail)
+  }
+
+  return data as T
+}
 
 export async function fetchRecipes(): Promise<Recipe[]> {
-  const url = `${API_BASE_URL}/recipes`
-  console.log('Fetching recipes from:', url)
-  
-  try {
-    const res = await fetch(url)
-    console.log('Fetch response status:', res.status)
-    
-    if (!res.ok) {
-      throw new Error(`Request failed: ${res.status}`)
-    }
-    
-    const data = await res.json()
-    console.log('Fetched recipes:', data.length, 'items')
-    return data
-  } catch (error) {
-    console.error('Error fetching recipes:', error)
-    throw error
-  }
+  return requestJson<Recipe[]>("/recipes", undefined, "Failed to fetch recipes")
 }
 
 export async function fetchRecipeDetail(recipeId: number): Promise<RecipeDetail> {
-  const res = await fetch(`${API_BASE_URL}/recipes/${recipeId}`)
-  if (!res.ok) {
-    throw new Error(`Detail request failed: ${res.status}`)
-  }
-  return await res.json()
+  return requestJson<RecipeDetail>(
+    `/recipes/${recipeId}`,
+    undefined,
+    "Failed to fetch recipe detail"
+  )
 }
 
 export async function fetchRecipeMacros(recipeId: number): Promise<RecipeMacros> {
-  const res = await fetch(`${API_BASE_URL}/recipes/${recipeId}/macros`)
-  if (!res.ok) {
-    throw new Error(`Macros request failed: ${res.status}`)
-  }
-  return await res.json()
+  return requestJson<RecipeMacros>(
+    `/recipes/${recipeId}/macros`,
+    undefined,
+    "Failed to fetch recipe macros"
+  )
 }
 
-export interface CreateRecipePayload {
-  name: string
-  cuisine: string
-  servings: number
-  instructions: string
-  source: string
-  ingredients: Ingredient[]
-}
-
-export async function createRecipe(payload: CreateRecipePayload): Promise<any> {
-  const url = `${API_BASE_URL}/recipes`
-  console.log('Creating recipe at:', url, 'with payload:', payload)
-  
-  try {
-    const res = await fetch(url, {
+export async function createRecipe(
+  payload: CreateRecipePayload
+): Promise<{ message: string; recipe_id: number; recipe_name: string }> {
+  return requestJson<{ message: string; recipe_id: number; recipe_name: string }>(
+    "/recipes",
+    {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
-    })
-    
-    console.log('Create recipe response status:', res.status)
-    
-    let data
-    try {
-      data = await res.json()
-      console.log('Create recipe response data:', data)
-    } catch (jsonError) {
-      console.error('Failed to parse response as JSON:', jsonError)
-      // If response is not JSON, create a generic error
-      data = { detail: `Server error: ${res.status} ${res.statusText}` }
-    }
-
-    if (!res.ok) {
-      console.error('Recipe creation failed:', data)
-      throw new Error(JSON.stringify(data))
-    }
-
-    return data
-  } catch (error) {
-    console.error('Error in createRecipe:', error)
-    throw error
-  }
+    },
+    "Failed to create recipe"
+  )
 }
 
 export type Cuisine = {

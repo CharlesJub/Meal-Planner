@@ -10,13 +10,17 @@ from app.cuisine_score import (
     get_recipe_counts_by_cuisine,
     score_cuisine,
 )
-from app.database import SessionLocal, get_db
-from app.models import Cuisine, CuisinePickHistory, Ingredient, Recipe, RecipeIngredient
+from app.database import get_db
+from app.models import Cuisine, CuisinePickHistory, Ingredient
 from app.parsing import parse_recipe_text
 from app.schemas import RecipeCreate, RecipeParseRequest
 from app.services.ingredient_macro_service import enrich_ingredient_macros
 from app.services.macro_service import get_recipe_macros_logic
-from app.services.recipe_service import create_recipe_logic, get_recipe_logic
+from app.services.recipe_service import (
+    create_recipe_logic,
+    get_recipe_bundle_or_404,
+    get_recipe_logic,
+)
 
 app = FastAPI()
 
@@ -72,25 +76,9 @@ def get_recipes(db: Session = Depends(get_db)):
 
 @app.get("/recipes/{recipe_id}")
 def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
-
-    result = (
-        db.query(Recipe, Cuisine).join(Cuisine).filter(Recipe.id == recipe_id).first()
+    recipe, cuisine, recipe_ingredients, ingredient_map = get_recipe_bundle_or_404(
+        db, recipe_id
     )
-
-    if result is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-
-    recipe, cuisine = result
-
-    recipe_ingredients = (
-        db.query(RecipeIngredient).filter(RecipeIngredient.recipe_id == recipe_id).all()
-    )
-
-    ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
-
-    ingredients = db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
-
-    ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
 
     return {
         "id": recipe.id,
@@ -152,7 +140,7 @@ def enrich_ingredients(db: Session = Depends(get_db)):
 
 @app.get("/ingredients")
 def get_ingredients(db: Session = Depends(get_db)):
-    ingredients = db.query(Ingredient).all().order_by(Ingredient.name).all()
+    ingredients = db.query(Ingredient).order_by(Ingredient.name).all()
 
     return [
         {

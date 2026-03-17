@@ -74,3 +74,26 @@ def get_recipe_logic(db):
         }
         for recipe, cuisine in results
     ]
+
+
+def get_recipe_bundle_or_404(db, recipe_id: int):
+    result = (
+        db.query(Recipe, Cuisine).join(Cuisine).filter(Recipe.id == recipe_id).first()
+    )
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    recipe, cuisine = result
+    recipe_ingredients = (
+        db.query(RecipeIngredient).filter(RecipeIngredient.recipe_id == recipe_id).all()
+    )
+    ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
+    ingredients = (
+        db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
+        if ingredient_ids
+        else []
+    )
+    ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
+
+    return recipe, cuisine, recipe_ingredients, ingredient_map

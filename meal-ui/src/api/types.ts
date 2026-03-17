@@ -58,9 +58,20 @@ export type HomePageProps = {
   macrosError: string | null
 }
 
+export type RecipeDetailPanelProps = {
+  selectedRecipeId: number | null
+  selectedRecipeDetail: RecipeDetail | null
+  detailLoading: boolean
+  detailError: string | null
+  selectedRecipeMacros: RecipeMacros | null
+  macrosLoading: boolean
+  macrosError: string | null
+  onClearSelection: () => void
+}
+
 export type CreateRecipePayload = {
   name: string
-  cuisine_id: number | null
+  cuisine: string
   servings: number
   instructions: string
   source: string

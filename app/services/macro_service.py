@@ -1,22 +1,10 @@
-from http.client import HTTPException
-
-from app.models import Ingredient, Recipe, RecipeIngredient
+from app.services.recipe_service import get_recipe_bundle_or_404
 
 
 def get_recipe_macros_logic(db, recipe_id: int):
-    recipe = db.query(Recipe).filter_by(id=recipe_id).first()
-    if recipe is None:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-
-    recipe_ingredients = (
-        db.query(RecipeIngredient).filter(RecipeIngredient.recipe_id == recipe_id).all()
+    recipe, _, recipe_ingredients, ingredient_map = get_recipe_bundle_or_404(
+        db, recipe_id
     )
-
-    ingredient_ids = [ri.ingredient_id for ri in recipe_ingredients]
-
-    ingredients = db.query(Ingredient).filter(Ingredient.id.in_(ingredient_ids)).all()
-
-    ingredient_map = {ingredient.id: ingredient for ingredient in ingredients}
 
     totals = {
         "calories": 0.0,
