@@ -3,7 +3,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from app.models import Cuisine, CuisinePickHistory, Ingredient, Recipe, RecipeIngredient
 
 
-def create_recipe_logic(db, recipe_data):
+def create_recipe_logic(*, db, recipe_data):
     existing_recipe = (
         db.query(Recipe)
         .filter(Recipe.name == recipe_data.name.strip())
