@@ -5,12 +5,12 @@ import type {
   CreateRecipePayload,
   IngredientMatch,
   IngredientFormRow,
+  ParsedParseIssue,
   ParsedRecipe,
   ReviewFlag,
 } from "../api/types"
 import {
   ApiError,
-  createIngredient,
   createRecipe,
   parseRecipeText,
   searchIngredients,
@@ -68,9 +68,9 @@ function formatReviewFlag(flag: ReviewFlag) {
     case "missing_quantity":
       return "Missing quantity"
     case "missing_unit":
-      return "Missing unit"
+      return "Unit needs confirmation"
     case "missing_macro_source":
-      return "No macro source"
+      return "Needs ingredient match"
     case "missing_macro_data":
       return "Macro data incomplete"
     case "partial_macro_override":
@@ -80,25 +80,128 @@ function formatReviewFlag(flag: ReviewFlag) {
   }
 }
 
+function formatParseIssueCategory(category: ParsedParseIssue["review_category"]) {
+  switch (category) {
+    case "parse_failure":
+      return "Parse failure"
+    case "ingredient_cleanup":
+      return "Ingredient cleanup"
+    case "informational_note":
+      return "Note"
+    case "optional_input":
+      return "Optional"
+    default:
+      return "Needs classification"
+  }
+}
+
+function formatParseIssueSeverity(severity: ParsedParseIssue["severity"]) {
+  switch (severity) {
+    case "high":
+      return "High priority"
+    case "medium":
+      return "Review soon"
+    case "low":
+      return "Low priority"
+    default:
+      return severity
+  }
+}
+
+function splitIngredientText(rawName: string, normalizedName = "") {
+  const originalText = rawName.trim()
+  const normalized = normalizedName.trim()
+
+  if (!originalText) {
+    return {
+      cleanedName: "",
+      preparationNotes: "",
+      suggestedSearchTerm: "",
+    }
+  }
+
+  const fallbackParts = originalText
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+  const fallbackName = fallbackParts[0] ?? originalText
+  const fallbackNotes = fallbackParts.slice(1).join(", ")
+
+  if (!normalized) {
+    return {
+      cleanedName: fallbackName,
+      preparationNotes: fallbackNotes,
+      suggestedSearchTerm: fallbackName,
+    }
+  }
+
+  const loweredOriginal = originalText.toLowerCase()
+  const loweredNormalized = normalized.toLowerCase()
+
+  if (loweredOriginal === loweredNormalized) {
+    return {
+      cleanedName: originalText,
+      preparationNotes: "",
+      suggestedSearchTerm: normalized,
+    }
+  }
+
+  const normalizedIndex = loweredOriginal.indexOf(loweredNormalized)
+  if (normalizedIndex >= 0) {
+    const before = originalText.slice(0, normalizedIndex).trim()
+    const after = originalText.slice(normalizedIndex + normalized.length).trim()
+    const detailParts = [before, after]
+      .map((part) => part.replace(/^[,;:\-]\s*/, "").trim())
+      .filter(Boolean)
+
+    return {
+      cleanedName: originalText.slice(normalizedIndex, normalizedIndex + normalized.length),
+      preparationNotes: detailParts.join(", "),
+      suggestedSearchTerm: normalized,
+    }
+  }
+
+  return {
+    cleanedName: normalized,
+    preparationNotes: fallbackNotes,
+    suggestedSearchTerm: normalized,
+  }
+}
+
+function formatMatchOption(match: IngredientMatch) {
+  if (match.macro_status === "matched") {
+    return `${match.name} - macros ready`
+  }
+  if (match.macro_status === "incomplete") {
+    return `${match.name} - macros incomplete`
+  }
+  return `${match.name} - no macros yet`
+}
+
 function createBlankIngredientRow(name = ""): IngredientFormRow {
+  const parsedName = splitIngredientText(name)
+
   return {
     clientId: nextIngredientRowId(),
-    name,
+    name: parsedName.cleanedName,
+    originalText: name.trim(),
+    preparationNotes: parsedName.preparationNotes,
+    normalizedName: parsedName.suggestedSearchTerm,
+    lastSuggestedQuery: "",
+    shouldCreateIngredientRecord: false,
+    saveMacrosToIngredient: false,
     ingredientId: null,
     quantity: "",
     unit: "",
-    correctionStatus: name.trim() ? "needs_review" : "auto_matched",
+    correctionStatus: parsedName.cleanedName ? "needs_review" : "auto_matched",
     overrideCaloriesPerUnit: "",
     overrideProteinPerUnit: "",
     overrideCarbsPerUnit: "",
     overrideFatPerUnit: "",
-    reviewFlags: name.trim() ? ["missing_quantity", "missing_unit"] : [],
-    needsReview: name.trim().length > 0,
-    showMacros: false,
+    macroValuesAreManual: false,
+    reviewFlags: parsedName.cleanedName ? ["missing_quantity", "missing_unit"] : [],
     matchedIngredient: null,
     candidateIngredients: [],
-    searchTerm: name,
-    searchResults: [],
     isSearching: false,
     isCreatingIngredient: false,
   }
@@ -110,9 +213,24 @@ function buildIngredientRow(
     | ParsedRecipe["review"]["ingredient_reviews"][number]
     | undefined
 ): IngredientFormRow {
+  const parsedName = splitIngredientText(
+    ingredient.name ?? "",
+    review?.normalized_name ?? ""
+  )
+
   return {
     clientId: nextIngredientRowId(),
-    name: ingredient.name ?? "",
+    name: parsedName.cleanedName,
+    originalText: ingredient.name ?? "",
+    preparationNotes: parsedName.preparationNotes,
+    normalizedName: review?.normalized_name?.trim() ?? parsedName.suggestedSearchTerm,
+    lastSuggestedQuery:
+      review?.matched_ingredient != null ||
+      (review?.candidate_ingredients?.length ?? 0) > 0
+        ? review?.normalized_name?.trim() ?? parsedName.suggestedSearchTerm
+        : "",
+    shouldCreateIngredientRecord: false,
+    saveMacrosToIngredient: false,
     ingredientId: review?.matched_ingredient?.id ?? null,
     quantity:
       ingredient.quantity == null || Number.isNaN(ingredient.quantity)
@@ -124,13 +242,17 @@ function buildIngredientRow(
     overrideProteinPerUnit: "",
     overrideCarbsPerUnit: "",
     overrideFatPerUnit: "",
+    macroValuesAreManual: false,
     reviewFlags: review?.flags ?? [],
-    needsReview: review?.needs_review ?? false,
-    showMacros: false,
     matchedIngredient: review?.matched_ingredient ?? null,
-    candidateIngredients: review?.candidate_ingredients ?? [],
-    searchTerm: ingredient.name ?? "",
-    searchResults: [],
+    candidateIngredients: review?.matched_ingredient
+      ? [
+          review.matched_ingredient,
+          ...(review?.candidate_ingredients ?? []).filter(
+            (candidate) => candidate.id !== review.matched_ingredient?.id
+          ),
+        ]
+      : review?.candidate_ingredients ?? [],
     isSearching: false,
     isCreatingIngredient: false,
   }
@@ -145,11 +267,73 @@ function getMacroOverrideValues(row: IngredientFormRow) {
   ]
 }
 
+function getIngredientMacroTotals(row: IngredientFormRow) {
+  const quantity = getIngredientQuantity(row)
+  if (quantity == null || row.matchedIngredient == null) {
+    return null
+  }
+
+  const {
+    calories_per_unit,
+    protein_per_unit,
+    carbs_per_unit,
+    fat_per_unit,
+  } = row.matchedIngredient
+
+  if (
+    calories_per_unit == null ||
+    protein_per_unit == null ||
+    carbs_per_unit == null ||
+    fat_per_unit == null
+  ) {
+    return null
+  }
+
+  return {
+    calories: calories_per_unit * quantity,
+    protein: protein_per_unit * quantity,
+    carbs: carbs_per_unit * quantity,
+    fat: fat_per_unit * quantity,
+  }
+}
+
+function getMacroInputValue(
+  row: IngredientFormRow,
+  field: "calories" | "protein" | "carbs" | "fat"
+) {
+  if (row.macroValuesAreManual) {
+    switch (field) {
+      case "calories":
+        return row.overrideCaloriesPerUnit
+      case "protein":
+        return row.overrideProteinPerUnit
+      case "carbs":
+        return row.overrideCarbsPerUnit
+      case "fat":
+        return row.overrideFatPerUnit
+    }
+  }
+
+  const matchedTotals = getIngredientMacroTotals(row)
+  if (matchedTotals == null) {
+    return ""
+  }
+
+  const value = matchedTotals[field]
+  return Number.isFinite(value) ? String(Number(value.toFixed(2))) : ""
+}
+
 function hasAnyMacroOverride(row: IngredientFormRow) {
+  if (!row.macroValuesAreManual) {
+    return false
+  }
   return getMacroOverrideValues(row).some((value) => value !== "")
 }
 
 function hasCompleteMacroOverride(row: IngredientFormRow) {
+  if (!row.macroValuesAreManual) {
+    return false
+  }
   return getMacroOverrideValues(row).every((value) => value !== "")
 }
 
@@ -193,8 +377,15 @@ function getRowFlags(row: IngredientFormRow): ReviewFlag[] {
 
 function resolveCorrectionStatus(row: IngredientFormRow): string {
   const flags = getRowFlags(row)
+  const isCreatingReusableIngredient =
+    row.shouldCreateIngredientRecord &&
+    row.saveMacrosToIngredient &&
+    hasCompleteMacroOverride(row)
 
   if (hasCompleteMacroOverride(row)) {
+    if (isCreatingReusableIngredient || row.saveMacrosToIngredient) {
+      return "user_confirmed"
+    }
     return "user_overridden"
   }
   if (row.ingredientId != null) {
@@ -270,7 +461,7 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
   const [ingredients, setIngredients] = useState<IngredientFormRow[]>([
     createBlankIngredientRow(),
   ])
-  const [unparsedLines, setUnparsedLines] = useState<string[]>([])
+  const [parseIssues, setParseIssues] = useState<ParsedParseIssue[]>([])
   const [reviewSummary, setReviewSummary] =
     useState<ParsedRecipe["review"]["summary"] | null>(null)
   const [needsHumanReview, setNeedsHumanReview] = useState(false)
@@ -299,6 +490,31 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
     loadCuisines()
   }, [])
 
+  useEffect(() => {
+    const rowsNeedingSuggestions = ingredients.filter((ingredient) => {
+      const query = ingredient.normalizedName.trim()
+
+      return (
+        query.length > 0 &&
+        ingredient.matchedIngredient == null &&
+        !ingredient.isSearching &&
+        ingredient.lastSuggestedQuery !== query
+      )
+    })
+
+    if (rowsNeedingSuggestions.length === 0) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      rowsNeedingSuggestions.forEach((ingredient) => {
+        void loadIngredientSuggestions(ingredient.clientId, ingredient.normalizedName)
+      })
+    }, 250)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [ingredients])
+
   function updateIngredient(
     clientId: string,
     field: keyof IngredientFormRow,
@@ -312,32 +528,68 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
             ? {
                 ...ingredient,
                 name: String(value),
+                normalizedName: String(value).trim().toLowerCase(),
+                lastSuggestedQuery: "",
+                shouldCreateIngredientRecord: false,
+                saveMacrosToIngredient: false,
                 ingredientId: null,
                 matchedIngredient: null,
                 candidateIngredients: [],
-                searchTerm: String(value),
-                searchResults: [],
+                isSearching: false,
                 correctionStatus: "needs_review",
               }
-            : field === "showMacros"
-              ? { ...ingredient, showMacros: Boolean(value) }
-              : field === "searchTerm"
-                ? { ...ingredient, searchTerm: String(value) }
-                : field === "quantity"
+            : field === "quantity"
                   ? { ...ingredient, quantity: String(value) }
-                  : field === "unit"
+                : field === "unit"
                     ? { ...ingredient, unit: String(value) }
-                    : field === "correctionStatus"
-                      ? { ...ingredient, correctionStatus: String(value) }
-                      : field === "overrideCaloriesPerUnit"
-                        ? { ...ingredient, overrideCaloriesPerUnit: String(value) }
+                    : field === "saveMacrosToIngredient"
+                      ? {
+                          ...ingredient,
+                          saveMacrosToIngredient: Boolean(value),
+                        }
+                    : field === "overrideCaloriesPerUnit"
+                        ? {
+                            ...ingredient,
+                            overrideCaloriesPerUnit: String(value),
+                            macroValuesAreManual: true,
+                          }
                         : field === "overrideProteinPerUnit"
-                          ? { ...ingredient, overrideProteinPerUnit: String(value) }
+                          ? {
+                              ...ingredient,
+                              overrideProteinPerUnit: String(value),
+                              macroValuesAreManual: true,
+                            }
                           : field === "overrideCarbsPerUnit"
-                            ? { ...ingredient, overrideCarbsPerUnit: String(value) }
+                            ? {
+                                ...ingredient,
+                                overrideCarbsPerUnit: String(value),
+                                macroValuesAreManual: true,
+                              }
                             : field === "overrideFatPerUnit"
-                              ? { ...ingredient, overrideFatPerUnit: String(value) }
+                              ? {
+                                  ...ingredient,
+                                  overrideFatPerUnit: String(value),
+                                  macroValuesAreManual: true,
+                                }
                               : ingredient
+      )
+    )
+  }
+
+  function clearIngredientMatch(clientId: string) {
+    setIngredients((prev) =>
+      prev.map((ingredient) =>
+        ingredient.clientId === clientId
+            ? {
+              ...ingredient,
+              shouldCreateIngredientRecord: false,
+              saveMacrosToIngredient: false,
+              ingredientId: null,
+              matchedIngredient: null,
+              correctionStatus: "needs_review",
+              macroValuesAreManual: false,
+            }
+          : ingredient
       )
     )
   }
@@ -346,62 +598,57 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
     setIngredients((prev) =>
       prev.map((ingredient) =>
         ingredient.clientId === clientId
-          ? {
+            ? {
               ...ingredient,
+              shouldCreateIngredientRecord: false,
+              saveMacrosToIngredient: false,
               ingredientId: match.id,
               matchedIngredient: match,
+              name: ingredient.name || match.name,
+              normalizedName: match.name,
               candidateIngredients: [
                 match,
                 ...ingredient.candidateIngredients.filter(
                   (candidate) => candidate.id !== match.id
                 ),
               ],
-              searchResults: ingredient.searchResults.filter(
-                (candidate) => candidate.id !== match.id
-              ),
-              searchTerm: match.name,
               correctionStatus: "user_confirmed",
+              macroValuesAreManual: false,
             }
           : ingredient
       )
     )
   }
 
-  async function handleIngredientSearch(row: IngredientFormRow) {
-    const searchTerm = row.searchTerm.trim() || row.name.trim()
-    if (!searchTerm) {
-      setError("Enter an ingredient name before searching.")
+  async function loadIngredientSuggestions(clientId: string, query: string) {
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) {
       return
     }
 
     setIngredients((prev) =>
       prev.map((ingredient) =>
-        ingredient.clientId === row.clientId
-          ? { ...ingredient, isSearching: true }
+        ingredient.clientId === clientId
+          ? { ...ingredient, isSearching: true, lastSuggestedQuery: trimmedQuery }
           : ingredient
       )
     )
 
     try {
-      const results = await searchIngredients(searchTerm)
+      const results = await searchIngredients(trimmedQuery)
       setIngredients((prev) =>
         prev.map((ingredient) =>
-          ingredient.clientId === row.clientId
+          ingredient.clientId === clientId &&
+          ingredient.normalizedName.trim() === trimmedQuery &&
+          ingredient.matchedIngredient == null
             ? {
                 ...ingredient,
-                searchResults: results,
-                candidateIngredients: [
-                  ...ingredient.candidateIngredients,
-                  ...results.filter(
-                    (result) =>
-                      !ingredient.candidateIngredients.some(
-                        (candidate) => candidate.id === result.id
-                      )
-                  ),
-                ],
+                candidateIngredients: results,
                 isSearching: false,
               }
-            : ingredient
+            : ingredient.clientId === clientId
+              ? { ...ingredient, isSearching: false }
+              : ingredient
         )
       )
     } catch (err) {
@@ -409,7 +656,7 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
       setError(getRecipeErrorMessage(err))
       setIngredients((prev) =>
         prev.map((ingredient) =>
-          ingredient.clientId === row.clientId
+          ingredient.clientId === clientId
             ? { ...ingredient, isSearching: false }
             : ingredient
         )
@@ -417,79 +664,36 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
     }
   }
 
-  async function handleCreateIngredient(row: IngredientFormRow) {
-    if (!row.name.trim()) {
-      setError("Enter an ingredient name before creating a new ingredient.")
-      return
-    }
-
-    if (hasAnyMacroOverride(row) && !hasCompleteMacroOverride(row)) {
-      setError("Complete all four macro override fields before creating an ingredient.")
-      return
-    }
-
-    const macroOverridePayload = buildMacroOverridePayload(row)
-    if (hasCompleteMacroOverride(row) && macroOverridePayload == null) {
-      setError(
-        "Enter a quantity greater than 0 before turning row macros into a new ingredient."
-      )
-      return
-    }
-
-    setIngredients((prev) =>
-      prev.map((ingredient) =>
-        ingredient.clientId === row.clientId
-          ? { ...ingredient, isCreatingIngredient: true }
-          : ingredient
-      )
-    )
-
-    try {
-      const created = await createIngredient({
-        name: row.name.trim(),
-        unit: row.unit.trim() || null,
-        calories_per_unit: macroOverridePayload?.override_calories_per_unit ?? null,
-        protein_per_unit: macroOverridePayload?.override_protein_per_unit ?? null,
-        carbs_per_unit: macroOverridePayload?.override_carbs_per_unit ?? null,
-        fat_per_unit: macroOverridePayload?.override_fat_per_unit ?? null,
-      })
-
+  function handleIngredientMatchChange(row: IngredientFormRow, value: string) {
+    if (value === "__create__") {
       setIngredients((prev) =>
         prev.map((ingredient) =>
           ingredient.clientId === row.clientId
             ? {
                 ...ingredient,
-                ingredientId: created.id,
-                matchedIngredient: created,
-                candidateIngredients: [
-                  created,
-                  ...ingredient.candidateIngredients.filter(
-                    (candidate) => candidate.id !== created.id
-                  ),
-                ],
-                searchResults: [],
-                searchTerm: created.name,
-                correctionStatus: "user_confirmed",
-                isCreatingIngredient: false,
-                overrideCaloriesPerUnit: macroOverridePayload ? "" : ingredient.overrideCaloriesPerUnit,
-                overrideProteinPerUnit: macroOverridePayload ? "" : ingredient.overrideProteinPerUnit,
-                overrideCarbsPerUnit: macroOverridePayload ? "" : ingredient.overrideCarbsPerUnit,
-                overrideFatPerUnit: macroOverridePayload ? "" : ingredient.overrideFatPerUnit,
-                showMacros: macroOverridePayload ? false : ingredient.showMacros,
+                shouldCreateIngredientRecord: true,
+                saveMacrosToIngredient: false,
+                ingredientId: null,
+                matchedIngredient: null,
+                correctionStatus: "needs_review",
               }
             : ingredient
         )
       )
-    } catch (err) {
-      console.error("Ingredient creation error:", err)
-      setError(getRecipeErrorMessage(err))
-      setIngredients((prev) =>
-        prev.map((ingredient) =>
-          ingredient.clientId === row.clientId
-            ? { ...ingredient, isCreatingIngredient: false }
-            : ingredient
-        )
-      )
+      return
+    }
+
+    if (value === "") {
+      clearIngredientMatch(row.clientId)
+      return
+    }
+
+    const match = row.candidateIngredients.find(
+      (candidate) => String(candidate.id) === value
+    )
+
+    if (match) {
+      applyIngredientMatch(row.clientId, match)
     }
   }
 
@@ -505,7 +709,8 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
     const ingredientCount = parsedRecipe.ingredients.length
     const reviewCount =
       parsedRecipe.review.summary.ingredients_needing_review +
-      parsedRecipe.review.summary.unparsed_line_count
+      parsedRecipe.review.summary.parse_issue_counts_by_severity.high +
+      parsedRecipe.review.summary.parse_issue_counts_by_severity.medium
 
     const messages = [
       `Parsed ${ingredientCount} ingredient${ingredientCount === 1 ? "" : "s"}.`,
@@ -550,7 +755,7 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
             )
           : [createBlankIngredientRow()]
       )
-      setUnparsedLines(parsedRecipe.review.unparsed_lines)
+      setParseIssues(parsedRecipe.review.parse_issues)
       setReviewSummary(parsedRecipe.review.summary)
       setNeedsHumanReview(parsedRecipe.review.needs_human_review)
       setParseMessage(buildParseMessage(parsedRecipe))
@@ -563,13 +768,13 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
     }
   }
 
-  function handleConvertUnparsedLine(line: string) {
-    addIngredientRow(line)
-    setUnparsedLines((prev) => prev.filter((candidate) => candidate !== line))
+  function handleConvertParseIssue(issue: ParsedParseIssue) {
+    addIngredientRow(issue.raw_line)
+    setParseIssues((prev) => prev.filter((candidate) => candidate !== issue))
   }
 
-  function handleIgnoreUnparsedLine(line: string) {
-    setUnparsedLines((prev) => prev.filter((candidate) => candidate !== line))
+  function handleIgnoreParseIssue(issue: ParsedParseIssue) {
+    setParseIssues((prev) => prev.filter((candidate) => candidate !== issue))
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -652,6 +857,8 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
           return {
             name: ingredient.name.trim(),
             ingredient_id: ingredient.ingredientId,
+            create_ingredient_record: ingredient.shouldCreateIngredientRecord,
+            save_macros_to_ingredient: ingredient.saveMacrosToIngredient,
             quantity: toOptionalNumber(ingredient.quantity),
             unit: ingredient.unit.trim() || null,
             correction_status: resolveCorrectionStatus(ingredient),
@@ -685,7 +892,11 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
   const ingredientsNeedingReview = displayIngredients.filter(
     (ingredient) => getRowFlags(ingredient).length > 0
   ).length
-  const unresolvedItemsCount = ingredientsNeedingReview + unparsedLines.length
+  const blockingParseIssues = parseIssues.filter(
+    (issue) => issue.severity === "high" || issue.severity === "medium"
+  )
+  const unresolvedItemsCount = ingredientsNeedingReview + blockingParseIssues.length
+  const lowPriorityParseIssues = parseIssues.filter((issue) => issue.severity === "low")
 
   return (
     <div className="page-shell">
@@ -771,8 +982,11 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
             </div>
             {reviewSummary && (
               <div className="review-summary">
-                <strong>{ingredientsNeedingReview}</strong>
-                <span>ingredient row{ingredientsNeedingReview === 1 ? "" : "s"} need review</span>
+                <strong>{ingredientsNeedingReview + blockingParseIssues.length}</strong>
+                <span>
+                  blocking item
+                  {ingredientsNeedingReview + blockingParseIssues.length === 1 ? "" : "s"} in review
+                </span>
               </div>
             )}
           </div>
@@ -820,8 +1034,7 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
                 <div>
                   <h3>Ingredients</h3>
                   <p>
-                    Flagged rows are sorted to the top so you can fix only what
-                    matters.
+                    Rows that still need attention stay at the top.
                   </p>
                 </div>
                 <button type="button" onClick={() => addIngredientRow()}>
@@ -832,6 +1045,11 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
               <div className="ingredient-list">
                 {displayIngredients.map((ingredient) => {
                   const rowFlags = getRowFlags(ingredient)
+                  const visibleFlags = rowFlags.filter(
+                    (flag) =>
+                      flag !== "missing_macro_source" &&
+                      flag !== "missing_macro_data"
+                  )
                   const needsReview = rowFlags.length > 0
 
                   return (
@@ -842,23 +1060,26 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
                       <div className="ingredient-card-header">
                         <div>
                           <strong>{ingredient.name.trim() || "New ingredient"}</strong>
-                          <div className="badge-row">
-                            {rowFlags.map((flag) => (
-                              <span key={flag} className="flag-badge">
-                                {formatReviewFlag(flag)}
-                              </span>
-                            ))}
-                            {!needsReview && (
-                              <span className="flag-badge flag-badge-complete">
-                                Reviewed
-                              </span>
+                          {ingredient.originalText.trim() &&
+                            ingredient.originalText.trim() !== ingredient.name.trim() && (
+                              <p className="ingredient-source-text">
+                                Original text: {ingredient.originalText.trim()}
+                              </p>
                             )}
-                          </div>
+                          {visibleFlags.length > 0 && (
+                            <div className="badge-row">
+                              {visibleFlags.map((flag) => (
+                                <span key={flag} className="flag-badge">
+                                  {formatReviewFlag(flag)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         <button
                           type="button"
-                          className="ghost-button"
+                          className="text-link"
                           onClick={() => removeIngredientRow(ingredient.clientId)}
                           disabled={ingredients.length === 1}
                         >
@@ -868,7 +1089,7 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
 
                       <div className="field-grid ingredient-grid">
                         <label className="field">
-                          <span>Name</span>
+                          <span>Ingredient name</span>
                           <input
                             value={ingredient.name}
                             onChange={(e) =>
@@ -879,6 +1100,15 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
                               )
                             }
                             placeholder="Chicken breast"
+                          />
+                        </label>
+
+                        <label className="field">
+                          <span>Preparation/details</span>
+                          <input
+                            value={ingredient.preparationNotes}
+                            readOnly
+                            placeholder="No extra details"
                           />
                         </label>
 
@@ -913,224 +1143,209 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
                             placeholder="lb"
                           />
                         </label>
+                      </div>
 
+                      <div className="match-panel">
                         <label className="field">
-                          <span>Status</span>
+                          <span>Ingredient match</span>
                           <select
-                            value={ingredient.correctionStatus}
+                            value={
+                              ingredient.shouldCreateIngredientRecord
+                                ? "__create__"
+                                : ingredient.ingredientId == null
+                                ? ""
+                                : String(ingredient.ingredientId)
+                            }
                             onChange={(e) =>
-                              updateIngredient(
-                                ingredient.clientId,
-                                "correctionStatus",
+                              handleIngredientMatchChange(
+                                ingredient,
                                 e.target.value
                               )
                             }
                           >
-                            <option value="needs_review">Needs review</option>
-                            <option value="auto_matched">Auto matched</option>
-                            <option value="user_confirmed">User confirmed</option>
-                            <option value="user_overridden">User overridden</option>
-                            <option value="unresolved">Unresolved</option>
+                            <option value="">
+                              {ingredient.isSearching
+                                ? "Loading ingredient matches..."
+                                : "No ingredient match selected"}
+                            </option>
+                            {ingredient.candidateIngredients.map((candidate) => (
+                              <option key={candidate.id} value={String(candidate.id)}>
+                                {formatMatchOption(candidate)}
+                              </option>
+                            ))}
+                            <option value="__create__">Create new ingredient record</option>
                           </select>
                         </label>
-                      </div>
-
-                      <div className="match-panel">
-                        <div className="match-panel-header">
-                          <div>
-                            <strong>Ingredient match</strong>
-                            <p className="muted-copy">
-                              {ingredient.matchedIngredient
-                                ? `Using ${ingredient.matchedIngredient.name}`
-                                : "No ingredient record selected yet."}
-                            </p>
-                          </div>
-                          <span
-                            className={`flag-badge ${
-                              ingredient.matchedIngredient?.macro_status === "matched"
-                                ? "flag-badge-complete"
-                                : ""
-                            }`}
-                          >
-                            {ingredient.matchedIngredient == null
-                              ? "Unmatched"
-                              : ingredient.matchedIngredient.macro_status === "matched"
-                                ? "Macros complete"
-                                : "Macros incomplete"}
-                          </span>
-                        </div>
-
-                        {ingredient.candidateIngredients.length > 0 && (
-                          <div className="match-chip-row">
-                            {ingredient.candidateIngredients.map((candidate) => (
-                              <button
-                                key={candidate.id}
-                                type="button"
-                                className={`chip-button ${
-                                  ingredient.ingredientId === candidate.id
-                                    ? "chip-button-active"
-                                    : ""
-                                }`}
-                                onClick={() =>
-                                  applyIngredientMatch(ingredient.clientId, candidate)
-                                }
-                              >
-                                {candidate.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="field-grid match-search-grid">
-                          <label className="field">
-                            <span>Search existing ingredients</span>
-                            <input
-                              value={ingredient.searchTerm}
-                              onChange={(e) =>
-                                updateIngredient(
-                                  ingredient.clientId,
-                                  "searchTerm",
-                                  e.target.value
-                                )
-                              }
-                              placeholder="Search by ingredient name"
-                            />
-                          </label>
-
-                          <div className="inline-actions">
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              onClick={() => handleIngredientSearch(ingredient)}
-                              disabled={ingredient.isSearching}
-                            >
-                              {ingredient.isSearching ? "Searching..." : "Search"}
-                            </button>
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              onClick={() => handleCreateIngredient(ingredient)}
-                              disabled={ingredient.isCreatingIngredient}
-                            >
-                              {ingredient.isCreatingIngredient
-                                ? "Creating..."
-                                : "Create ingredient"}
-                            </button>
-                          </div>
-                        </div>
-
-                        {ingredient.searchResults.length > 0 && (
-                          <div className="search-result-list">
-                            {ingredient.searchResults.map((candidate) => (
-                              <button
-                                key={candidate.id}
-                                type="button"
-                                className="search-result-item"
-                                onClick={() =>
-                                  applyIngredientMatch(ingredient.clientId, candidate)
-                                }
-                              >
-                                <strong>{candidate.name}</strong>
-                                <span>
-                                  {candidate.macro_status === "matched"
-                                    ? "Macros complete"
-                                    : candidate.macro_status === "incomplete"
-                                      ? "Macros incomplete"
-                                      : "No macros yet"}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
+                        <p className="muted-copy">
+                          Matching links this row to a reusable ingredient record for
+                          macro autofill.
+                        </p>
+                        {ingredient.matchedIngredient == null && !ingredient.isSearching && (
+                          <p className="muted-copy">
+                            {ingredient.shouldCreateIngredientRecord
+                              ? "This row will create a reusable ingredient record when you save. If you fill in all macros below, they will be saved onto that ingredient."
+                              : "No match selected yet. The last option creates a new reusable ingredient record, not just a recipe row."}
+                          </p>
                         )}
                       </div>
 
                       <div className="macro-panel">
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={() =>
-                            updateIngredient(
-                              ingredient.clientId,
-                              "showMacros",
-                              !ingredient.showMacros
-                            )
-                          }
-                        >
-                          {ingredient.showMacros
-                            ? "Hide macro overrides"
-                            : "Add macro overrides"}
-                        </button>
-
-                        {ingredient.showMacros && (
-                          <div className="field-grid field-grid-four">
-                            <label className="field">
-                              <span>Calories </span>
-                              <input
-                                type="number"
-                                step="any"
-                                value={ingredient.overrideCaloriesPerUnit}
-                                onChange={(e) =>
-                                  updateIngredient(
-                                    ingredient.clientId,
-                                    "overrideCaloriesPerUnit",
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </label>
-                            <label className="field">
-                              <span>Protein </span>
-                              <input
-                                type="number"
-                                step="any"
-                                value={ingredient.overrideProteinPerUnit}
-                                onChange={(e) =>
-                                  updateIngredient(
-                                    ingredient.clientId,
-                                    "overrideProteinPerUnit",
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </label>
-                            <label className="field">
-                              <span>Carbs </span>
-                              <input
-                                type="number"
-                                step="any"
-                                value={ingredient.overrideCarbsPerUnit}
-                                onChange={(e) =>
-                                  updateIngredient(
-                                    ingredient.clientId,
-                                    "overrideCarbsPerUnit",
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </label>
-                            <label className="field">
-                              <span>Fat </span>
-                              <input
-                                type="number"
-                                step="any"
-                                value={ingredient.overrideFatPerUnit}
-                                onChange={(e) =>
-                                  updateIngredient(
-                                    ingredient.clientId,
-                                    "overrideFatPerUnit",
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </label>
+                        <div className="match-panel-header">
+                          <div>
+                            <strong>Macros for this row</strong>
+                            <p className="muted-copy">
+                              {ingredient.shouldCreateIngredientRecord
+                                ? ingredient.saveMacrosToIngredient
+                                  ? "These values will be saved as the default macros on the new ingredient record when you save the recipe."
+                                  : "These values only apply to this recipe row unless you choose to save them to the ingredient record."
+                                : ingredient.ingredientId != null
+                                  ? ingredient.saveMacrosToIngredient
+                                    ? "These values will update the default macros on the matched ingredient when you save the recipe."
+                                    : ingredient.macroValuesAreManual
+                                      ? "These values only override this recipe row. The matched ingredient will not change."
+                                      : "These totals come from the matched ingredient when enough macro data is available."
+                                  : "These values only apply to this recipe row unless you choose to save them to the ingredient record."}
+                            </p>
                           </div>
+                          <span
+                            className={`flag-badge ${
+                              ingredient.macroValuesAreManual
+                                ? ""
+                                : "flag-badge-complete"
+                            }`}
+                          >
+                            {ingredient.macroValuesAreManual
+                              ? "Manual override"
+                              : "Using matched macros"}
+                          </span>
+                        </div>
+
+                        {ingredient.macroValuesAreManual && (
+                          <label className="macro-save-toggle">
+                            <input
+                              type="checkbox"
+                              checked={ingredient.saveMacrosToIngredient}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.clientId,
+                                  "saveMacrosToIngredient",
+                                  e.target.checked
+                                )
+                              }
+                            />
+                            <span>
+                              {ingredient.shouldCreateIngredientRecord
+                                ? "Save these as the default macros for the new ingredient"
+                                : ingredient.ingredientId != null
+                                  ? "Save these as the default macros for the matched ingredient"
+                                  : "Save these as the default macros if this becomes an ingredient record"}
+                            </span>
+                          </label>
                         )}
-                        {ingredient.showMacros && (
-                          <p className="muted-copy">
-                            Enter totals for the whole ingredient row. We will convert
-                            them automatically when the recipe is saved.
-                          </p>
-                        )}
+
+                        <div className="field-grid field-grid-four">
+                          <label className="field">
+                            <span>Calories </span>
+                            <input
+                              type="number"
+                              step="any"
+                              value={getMacroInputValue(ingredient, "calories")}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.clientId,
+                                  "overrideCaloriesPerUnit",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="0"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Protein </span>
+                            <input
+                              type="number"
+                              step="any"
+                              value={getMacroInputValue(ingredient, "protein")}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.clientId,
+                                  "overrideProteinPerUnit",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="0"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Carbs </span>
+                            <input
+                              type="number"
+                              step="any"
+                              value={getMacroInputValue(ingredient, "carbs")}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.clientId,
+                                  "overrideCarbsPerUnit",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="0"
+                            />
+                          </label>
+                          <label className="field">
+                            <span>Fat </span>
+                            <input
+                              type="number"
+                              step="any"
+                              value={getMacroInputValue(ingredient, "fat")}
+                              onChange={(e) =>
+                                updateIngredient(
+                                  ingredient.clientId,
+                                  "overrideFatPerUnit",
+                                  e.target.value
+                                )
+                              }
+                              placeholder="0"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="inline-actions">
+                          {ingredient.macroValuesAreManual ? (
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={() =>
+                                setIngredients((prev) =>
+                                  prev.map((row) =>
+                                    row.clientId === ingredient.clientId
+                                      ? {
+                                          ...row,
+                                          macroValuesAreManual: false,
+                                          saveMacrosToIngredient: false,
+                                          overrideCaloriesPerUnit: "",
+                                          overrideProteinPerUnit: "",
+                                          overrideCarbsPerUnit: "",
+                                          overrideFatPerUnit: "",
+                                        }
+                                      : row
+                                  )
+                                )
+                              }
+                            >
+                              Reset to matched macros
+                            </button>
+                          ) : (
+                            <p className="muted-copy">
+                              Change any value above to start a manual override.
+                            </p>
+                          )}
+                        </div>
+
+                        <p className="muted-copy">
+                          Enter totals for the whole ingredient row. We convert them
+                          automatically when the recipe is saved.
+                        </p>
                       </div>
                     </article>
                   )
@@ -1139,29 +1354,49 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
 
               <div className="section-heading">
                 <div>
-                  <h3>Unparsed lines</h3>
-                  <p>Convert anything useful into an ingredient row or ignore it for now.</p>
+                  <h3>Parse issues</h3>
+                  <p>
+                    High and medium items stay in focus. Low-priority notes can be left alone or converted if useful.
+                  </p>
                 </div>
               </div>
 
-              {unparsedLines.length === 0 ? (
-                <p className="muted-copy">No loose lines remain.</p>
+              {parseIssues.length === 0 ? (
+                <p className="muted-copy">No parse issues remain.</p>
               ) : (
                 <div className="unparsed-list">
-                  {unparsedLines.map((line, index) => (
-                    <div key={`${line}-${index}`} className="unparsed-item">
-                      <p>{line}</p>
+                  {blockingParseIssues.map((issue, index) => (
+                    <div
+                      key={`${issue.raw_line}-${issue.line_number ?? index}-${issue.issue_type}`}
+                      className={`unparsed-item parse-issue-card parse-issue-card-${issue.severity}`}
+                    >
+                      <div className="parse-issue-header">
+                        <div className="badge-row">
+                          <span className={`flag-badge parse-issue-badge parse-issue-badge-${issue.severity}`}>
+                            {formatParseIssueSeverity(issue.severity)}
+                          </span>
+                          <span className="flag-badge parse-issue-badge-neutral">
+                            {formatParseIssueCategory(issue.review_category)}
+                          </span>
+                          <span className="flag-badge parse-issue-badge-neutral">
+                            {issue.section}
+                            {issue.line_number != null ? ` line ${issue.line_number}` : ""}
+                          </span>
+                        </div>
+                        <p className="parse-issue-reason">{issue.reason}</p>
+                      </div>
+                      <p>{issue.raw_line}</p>
                       <div className="inline-actions">
                         <button
                           type="button"
-                          onClick={() => handleConvertUnparsedLine(line)}
+                          onClick={() => handleConvertParseIssue(issue)}
                         >
                           Convert to ingredient
                         </button>
                         <button
                           type="button"
                           className="ghost-button"
-                          onClick={() => handleIgnoreUnparsedLine(line)}
+                          onClick={() => handleIgnoreParseIssue(issue)}
                         >
                           Ignore for now
                         </button>
@@ -1169,6 +1404,59 @@ function AddRecipePage({ onRecipeCreated }: AddRecipePageProps) {
                     </div>
                   ))}
                 </div>
+              )}
+
+              {lowPriorityParseIssues.length > 0 && (
+                <>
+                  <div className="section-heading">
+                    <div>
+                      <h3>Low-priority notes</h3>
+                      <p>These usually do not block saving and are mostly here for context.</p>
+                    </div>
+                  </div>
+
+                  <div className="unparsed-list">
+                    {lowPriorityParseIssues.map((issue, index) => (
+                      <div
+                        key={`${issue.raw_line}-${issue.line_number ?? index}-${issue.issue_type}-low`}
+                        className="unparsed-item parse-issue-card parse-issue-card-low"
+                      >
+                        <div className="parse-issue-header">
+                          <div className="badge-row">
+                            <span className="flag-badge parse-issue-badge parse-issue-badge-low">
+                              {formatParseIssueSeverity(issue.severity)}
+                            </span>
+                            <span className="flag-badge parse-issue-badge-neutral">
+                              {formatParseIssueCategory(issue.review_category)}
+                            </span>
+                            <span className="flag-badge parse-issue-badge-neutral">
+                              {issue.section}
+                              {issue.line_number != null ? ` line ${issue.line_number}` : ""}
+                            </span>
+                          </div>
+                          <p className="parse-issue-reason">{issue.reason}</p>
+                        </div>
+                        <p>{issue.raw_line}</p>
+                        <div className="inline-actions">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => handleConvertParseIssue(issue)}
+                          >
+                            Convert anyway
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => handleIgnoreParseIssue(issue)}
+                          >
+                            Dismiss note
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </>
           )}

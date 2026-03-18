@@ -121,20 +121,56 @@ def build_parse_review(db, parsed_recipe: dict) -> dict:
             }
         )
 
+    parse_issues = parsed_recipe.get("parse_issues", [])
     unparsed_lines = parsed_recipe.get("unparsed_lines", [])
+
+    if not parse_issues and unparsed_lines:
+        parse_issues = [
+            {
+                "raw_line": line,
+                "line_number": None,
+                "section": "unknown",
+                "issue_type": "unparsed_line",
+                "reason": "Line was not parsed into a structured recipe field.",
+                "review_category": "unknown",
+                "severity": "medium",
+            }
+            for line in unparsed_lines
+        ]
+
+    blocking_parse_issues = [
+        issue for issue in parse_issues if issue.get("severity") in {"high", "medium"}
+    ]
+
     needs_review = any(item["needs_review"] for item in ingredient_reviews) or bool(
-        unparsed_lines
+        blocking_parse_issues
     )
+
+    parse_issue_counts_by_severity = {"high": 0, "medium": 0, "low": 0}
+    parse_issue_counts_by_category = {}
+    for issue in parse_issues:
+        severity = issue.get("severity", "medium")
+        parse_issue_counts_by_severity.setdefault(severity, 0)
+        parse_issue_counts_by_severity[severity] += 1
+
+        category = issue.get("review_category", "unknown")
+        parse_issue_counts_by_category[category] = (
+            parse_issue_counts_by_category.get(category, 0) + 1
+        )
 
     return {
         "needs_human_review": needs_review,
         "ingredient_reviews": ingredient_reviews,
         "unparsed_lines": unparsed_lines,
+        "parse_issues": parse_issues,
         "summary": {
             "ingredient_count": len(ingredient_reviews),
             "ingredients_needing_review": sum(
                 1 for item in ingredient_reviews if item["needs_review"]
             ),
             "unparsed_line_count": len(unparsed_lines),
+            "parse_issue_count": len(parse_issues),
+            "parse_issue_counts_by_severity": parse_issue_counts_by_severity,
+            "parse_issue_counts_by_category": parse_issue_counts_by_category,
         },
     }

@@ -199,6 +199,14 @@ class ParseRecipeTextTests(unittest.TestCase):
             "Those of you with an eagle eye may have noticed I added the garlic first in the video above. While that's not detrimental, I do believe the steps listed above are best - so follow those.",
             result["unparsed_lines"],
         )
+        self.assertTrue(result["parse_issues"])
+        self.assertEqual(result["parse_issues"][0]["line_number"], 2)
+        self.assertEqual(result["parse_issues"][0]["section"], "intro")
+        self.assertEqual(result["parse_issues"][0]["issue_type"], "unclassified_line")
+        self.assertEqual(
+            result["parse_issues"][0]["review_category"], "informational_note"
+        )
+        self.assertEqual(result["parse_issues"][0]["severity"], "low")
 
     def test_keeps_basic_fallback_parsing_for_simple_recipe_text(self):
         result = parse_recipe_text(SIMPLE_RECIPE)
@@ -214,6 +222,20 @@ class ParseRecipeTextTests(unittest.TestCase):
             ],
         )
         self.assertIn("Salt to taste", result["unparsed_lines"])
+        self.assertEqual(
+            result["parse_issues"],
+            [
+                {
+                    "raw_line": "Salt to taste",
+                    "line_number": 5,
+                    "section": "ingredients",
+                    "issue_type": "unparsed_ingredient_line",
+                    "reason": "Line was treated as ingredient content but did not match ingredient parsing heuristics.",
+                    "review_category": "optional_input",
+                    "severity": "low",
+                }
+            ],
+        )
         self.assertIn(
             "Cook the eggs in butter and season before serving.",
             result["instructions"],

@@ -302,12 +302,55 @@ def build_parse_issue(
     issue_type: str,
     reason: str,
 ) -> dict:
+    classification = classify_parse_issue(
+        line=line,
+        section=section,
+        issue_type=issue_type,
+    )
     return {
         "raw_line": line,
         "line_number": line_number,
         "section": section,
         "issue_type": issue_type,
         "reason": reason,
+        "review_category": classification["review_category"],
+        "severity": classification["severity"],
+    }
+
+
+def classify_parse_issue(*, line: str, section: str, issue_type: str) -> dict:
+    lowered = line.lower()
+
+    if section == "notes" or issue_type == "note":
+        return {
+            "review_category": "informational_note",
+            "severity": "low",
+        }
+
+    if any(
+        phrase in lowered
+        for phrase in ("to taste", "for serving", "to serve", "optional", "to garnish")
+    ):
+        return {
+            "review_category": "optional_input",
+            "severity": "low",
+        }
+
+    if issue_type == "unparsed_ingredient_line":
+        return {
+            "review_category": "parse_failure",
+            "severity": "high",
+        }
+
+    if section == "intro" and issue_type == "unclassified_line":
+        return {
+            "review_category": "informational_note",
+            "severity": "low",
+        }
+
+    return {
+        "review_category": "unknown",
+        "severity": "medium",
     }
 
 

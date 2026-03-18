@@ -6,6 +6,8 @@ from pydantic import BaseModel, model_validator
 class RecipeIngredientInput(BaseModel):
     name: str
     ingredient_id: int | None = None
+    create_ingredient_record: bool = False
+    save_macros_to_ingredient: bool = False
     quantity: float | None = None
     unit: str | None = None
     correction_status: str | None = None

@@ -20,6 +20,12 @@ function createBlankIngredientRow(): IngredientFormRow {
   return {
     clientId: nextIngredientRowId(),
     name: "",
+    originalText: "",
+    preparationNotes: "",
+    normalizedName: "",
+    lastSuggestedQuery: "",
+    shouldCreateIngredientRecord: false,
+    saveMacrosToIngredient: false,
     ingredientId: null,
     quantity: "",
     unit: "",
@@ -28,13 +34,10 @@ function createBlankIngredientRow(): IngredientFormRow {
     overrideProteinPerUnit: "",
     overrideCarbsPerUnit: "",
     overrideFatPerUnit: "",
+    macroValuesAreManual: false,
     reviewFlags: [],
-    needsReview: false,
-    showMacros: false,
     matchedIngredient: null,
     candidateIngredients: [],
-    searchTerm: "",
-    searchResults: [],
     isSearching: false,
     isCreatingIngredient: false,
   }
@@ -52,6 +55,12 @@ function buildIngredientRow(ingredient: NonNullable<RecipeDetail["ingredients"]>
   return {
     clientId: nextIngredientRowId(),
     name: ingredient.name ?? "",
+    originalText: ingredient.name ?? "",
+    preparationNotes: "",
+    normalizedName: (ingredient.name ?? "").trim().toLowerCase(),
+    lastSuggestedQuery: "",
+    shouldCreateIngredientRecord: false,
+    saveMacrosToIngredient: false,
     ingredientId: ingredient.ingredient_id ?? ingredient.id ?? null,
     quantity:
       ingredient.quantity == null || Number.isNaN(ingredient.quantity)
@@ -79,17 +88,14 @@ function buildIngredientRow(ingredient: NonNullable<RecipeDetail["ingredients"]>
       ingredient.override_fat_per_unit == null
         ? ""
         : String(ingredient.override_fat_per_unit * (ingredient.quantity ?? 0)),
-    reviewFlags: [],
-    needsReview: false,
-    showMacros:
+    macroValuesAreManual:
       ingredient.override_calories_per_unit != null ||
       ingredient.override_protein_per_unit != null ||
       ingredient.override_carbs_per_unit != null ||
       ingredient.override_fat_per_unit != null,
+    reviewFlags: [],
     matchedIngredient: null,
     candidateIngredients: [],
-    searchTerm: ingredient.name ?? "",
-    searchResults: [],
     isSearching: false,
     isCreatingIngredient: false,
   }
@@ -105,10 +111,16 @@ function getMacroOverrideValues(row: IngredientFormRow) {
 }
 
 function hasAnyMacroOverride(row: IngredientFormRow) {
+  if (!row.macroValuesAreManual) {
+    return false
+  }
   return getMacroOverrideValues(row).some((value) => value !== "")
 }
 
 function hasCompleteMacroOverride(row: IngredientFormRow) {
+  if (!row.macroValuesAreManual) {
+    return false
+  }
   return getMacroOverrideValues(row).every((value) => value !== "")
 }
 
@@ -219,6 +231,8 @@ function buildPayload(detail: RecipeDetail, ingredients: IngredientFormRow[]): U
       return {
         name: ingredient.name.trim(),
         ingredient_id: ingredient.ingredientId,
+        create_ingredient_record: false,
+        save_macros_to_ingredient: false,
         quantity: toOptionalNumber(ingredient.quantity),
         unit: ingredient.unit.trim() || null,
         correction_status: resolveCorrectionStatus(ingredient),
@@ -285,9 +299,33 @@ export default function RecipeDetailPanel({
   ) {
     setIngredients((prev) =>
       prev.map((ingredient) =>
-        ingredient.clientId === clientId
-          ? { ...ingredient, [field]: value }
-          : ingredient
+        ingredient.clientId !== clientId
+          ? ingredient
+          : field === "overrideCaloriesPerUnit"
+            ? {
+                ...ingredient,
+                overrideCaloriesPerUnit: String(value),
+                macroValuesAreManual: true,
+              }
+            : field === "overrideProteinPerUnit"
+              ? {
+                  ...ingredient,
+                  overrideProteinPerUnit: String(value),
+                  macroValuesAreManual: true,
+                }
+              : field === "overrideCarbsPerUnit"
+                ? {
+                    ...ingredient,
+                    overrideCarbsPerUnit: String(value),
+                    macroValuesAreManual: true,
+                  }
+                : field === "overrideFatPerUnit"
+                  ? {
+                      ...ingredient,
+                      overrideFatPerUnit: String(value),
+                      macroValuesAreManual: true,
+                    }
+                  : { ...ingredient, [field]: value }
       )
     )
   }
@@ -661,27 +699,14 @@ export default function RecipeDetailPanel({
                       </div>
 
                       <div style={{ marginTop: "12px" }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateIngredient(
-                              ingredient.clientId,
-                              "showMacros",
-                              !ingredient.showMacros
-                            )
-                          }
-                        >
-                          {ingredient.showMacros ? "Hide macro overrides" : "Edit macro overrides"}
-                        </button>
-                      </div>
-
-                      {ingredient.showMacros && (
+                        <div style={{ marginBottom: "8px", fontWeight: 600 }}>
+                          Macro totals for this row
+                        </div>
                         <div
                           style={{
                             display: "grid",
                             gridTemplateColumns: "repeat(4, minmax(120px, 1fr))",
                             gap: "12px",
-                            marginTop: "12px",
                           }}
                         >
                           <label>
@@ -749,7 +774,11 @@ export default function RecipeDetailPanel({
                             />
                           </label>
                         </div>
-                      )}
+                        <div style={{ marginTop: "8px", fontSize: "0.9rem", opacity: 0.8 }}>
+                          Leave these blank to keep using stored ingredient macros. Fill all four
+                          to save a manual override.
+                        </div>
+                      </div>
                     </article>
                   )
                 })}

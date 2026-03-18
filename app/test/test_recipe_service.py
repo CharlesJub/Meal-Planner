@@ -50,6 +50,8 @@ class UpdateRecipeLogicTests(unittest.TestCase):
         ingredient_input = SimpleNamespace(
             name="sweet potatoes",
             ingredient_id=21,
+            create_ingredient_record=False,
+            save_macros_to_ingredient=False,
             unit="lb",
             quantity=1.0,
             correction_status="user_confirmed",
@@ -74,6 +76,154 @@ class UpdateRecipeLogicTests(unittest.TestCase):
         added_recipe_ingredient = db.add.call_args_list[-1].args[0]
         self.assertEqual(added_recipe_ingredient.ingredient_id, 21)
         self.assertEqual(added_recipe_ingredient.unit, "lb")
+
+    def test_create_ingredient_record_saves_macros_onto_new_ingredient_when_opted_in(self):
+        recipe = SimpleNamespace(id=9)
+        ingredient_query = MagicMock()
+        ingredient_query.filter_by.return_value.first.return_value = None
+        delete_query = MagicMock()
+        db = MagicMock()
+        db.query.side_effect = [delete_query, ingredient_query]
+
+        ingredient_input = SimpleNamespace(
+            name="roasted chicken",
+            ingredient_id=None,
+            create_ingredient_record=True,
+            save_macros_to_ingredient=True,
+            unit="lb",
+            quantity=2.0,
+            correction_status="user_confirmed",
+            override_calories_per_unit=110.0,
+            override_protein_per_unit=12.0,
+            override_carbs_per_unit=0.0,
+            override_fat_per_unit=6.0,
+        )
+
+        created_ingredients = []
+
+        def capture_add(item):
+            if item.__class__.__name__ == "Ingredient":
+                item.id = 88
+                created_ingredients.append(item)
+
+        db.add.side_effect = capture_add
+
+        with patch("app.services.recipe_service.try_enrich_ingredient_macros") as enrich_mock:
+            _replace_recipe_ingredients(
+                db=db, recipe=recipe, ingredient_inputs=[ingredient_input]
+            )
+
+        self.assertEqual(len(created_ingredients), 1)
+        created_ingredient = created_ingredients[0]
+        self.assertEqual(created_ingredient.calories_per_unit, 110.0)
+        self.assertEqual(created_ingredient.protein_per_unit, 12.0)
+        self.assertEqual(created_ingredient.carbs_per_unit, 0.0)
+        self.assertEqual(created_ingredient.fat_per_unit, 6.0)
+        enrich_mock.assert_called_once_with(created_ingredient)
+
+        added_recipe_ingredient = db.add.call_args_list[-1].args[0]
+        self.assertEqual(added_recipe_ingredient.ingredient_id, 88)
+        self.assertIsNone(added_recipe_ingredient.override_calories_per_unit)
+        self.assertIsNone(added_recipe_ingredient.override_protein_per_unit)
+        self.assertIsNone(added_recipe_ingredient.override_carbs_per_unit)
+        self.assertIsNone(added_recipe_ingredient.override_fat_per_unit)
+
+    def test_create_ingredient_record_keeps_macros_recipe_specific_by_default(self):
+        recipe = SimpleNamespace(id=10)
+        ingredient_query = MagicMock()
+        ingredient_query.filter_by.return_value.first.return_value = None
+        delete_query = MagicMock()
+        db = MagicMock()
+        db.query.side_effect = [delete_query, ingredient_query]
+
+        ingredient_input = SimpleNamespace(
+            name="roasted chicken",
+            ingredient_id=None,
+            create_ingredient_record=True,
+            save_macros_to_ingredient=False,
+            unit="lb",
+            quantity=2.0,
+            correction_status="user_confirmed",
+            override_calories_per_unit=110.0,
+            override_protein_per_unit=12.0,
+            override_carbs_per_unit=0.0,
+            override_fat_per_unit=6.0,
+        )
+
+        created_ingredients = []
+
+        def capture_add(item):
+            if item.__class__.__name__ == "Ingredient":
+                item.id = 89
+                created_ingredients.append(item)
+
+        db.add.side_effect = capture_add
+
+        with patch("app.services.recipe_service.try_enrich_ingredient_macros") as enrich_mock:
+            _replace_recipe_ingredients(
+                db=db, recipe=recipe, ingredient_inputs=[ingredient_input]
+            )
+
+        self.assertEqual(len(created_ingredients), 1)
+        created_ingredient = created_ingredients[0]
+        self.assertIsNone(created_ingredient.calories_per_unit)
+        self.assertIsNone(created_ingredient.protein_per_unit)
+        self.assertIsNone(created_ingredient.carbs_per_unit)
+        self.assertIsNone(created_ingredient.fat_per_unit)
+        enrich_mock.assert_called_once_with(created_ingredient)
+
+        added_recipe_ingredient = db.add.call_args_list[-1].args[0]
+        self.assertEqual(added_recipe_ingredient.override_calories_per_unit, 110.0)
+        self.assertEqual(added_recipe_ingredient.override_protein_per_unit, 12.0)
+        self.assertEqual(added_recipe_ingredient.override_carbs_per_unit, 0.0)
+        self.assertEqual(added_recipe_ingredient.override_fat_per_unit, 6.0)
+
+    def test_save_macros_to_ingredient_updates_existing_match_when_opted_in(self):
+        recipe = SimpleNamespace(id=11)
+        existing_ingredient = SimpleNamespace(
+            id=21,
+            unit="gram",
+            calories_per_unit=50.0,
+            protein_per_unit=2.0,
+            carbs_per_unit=1.0,
+            fat_per_unit=3.0,
+        )
+        delete_query = MagicMock()
+        explicit_query = MagicMock()
+        explicit_query.filter.return_value.first.return_value = existing_ingredient
+        db = MagicMock()
+        db.query.side_effect = [delete_query, explicit_query]
+
+        ingredient_input = SimpleNamespace(
+            name="sweet potatoes",
+            ingredient_id=21,
+            create_ingredient_record=False,
+            save_macros_to_ingredient=True,
+            unit="lb",
+            quantity=1.0,
+            correction_status="user_confirmed",
+            override_calories_per_unit=80.0,
+            override_protein_per_unit=3.0,
+            override_carbs_per_unit=18.0,
+            override_fat_per_unit=0.0,
+        )
+
+        with patch("app.services.recipe_service.try_enrich_ingredient_macros") as enrich_mock:
+            _replace_recipe_ingredients(
+                db=db, recipe=recipe, ingredient_inputs=[ingredient_input]
+            )
+
+        self.assertEqual(existing_ingredient.calories_per_unit, 80.0)
+        self.assertEqual(existing_ingredient.protein_per_unit, 3.0)
+        self.assertEqual(existing_ingredient.carbs_per_unit, 18.0)
+        self.assertEqual(existing_ingredient.fat_per_unit, 0.0)
+        enrich_mock.assert_called_once_with(existing_ingredient)
+
+        added_recipe_ingredient = db.add.call_args_list[-1].args[0]
+        self.assertIsNone(added_recipe_ingredient.override_calories_per_unit)
+        self.assertIsNone(added_recipe_ingredient.override_protein_per_unit)
+        self.assertIsNone(added_recipe_ingredient.override_carbs_per_unit)
+        self.assertIsNone(added_recipe_ingredient.override_fat_per_unit)
 
 
 if __name__ == "__main__":

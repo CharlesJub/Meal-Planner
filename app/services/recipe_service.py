@@ -95,6 +95,21 @@ def _resolve_correction_status(
     return "auto_matched"
 
 
+def _has_complete_macro_values(override_macros: dict) -> bool:
+    return all(value is not None for value in override_macros.values())
+
+
+def _apply_macros_to_ingredient_record(*, ingredient, override_macros: dict) -> bool:
+    if not _has_complete_macro_values(override_macros):
+        return False
+
+    ingredient.calories_per_unit = override_macros["calories"]
+    ingredient.protein_per_unit = override_macros["protein"]
+    ingredient.carbs_per_unit = override_macros["carbs"]
+    ingredient.fat_per_unit = override_macros["fat"]
+    return True
+
+
 def _replace_recipe_ingredients(*, db, recipe, ingredient_inputs):
     (
         db.query(RecipeIngredient)
@@ -115,6 +130,12 @@ def _replace_recipe_ingredients(*, db, recipe, ingredient_inputs):
 
         ingredient = None
         explicit_ingredient_id = getattr(ingredient_input, "ingredient_id", None)
+        should_create_ingredient_record = bool(
+            getattr(ingredient_input, "create_ingredient_record", False)
+        )
+        save_macros_to_ingredient = bool(
+            getattr(ingredient_input, "save_macros_to_ingredient", False)
+        )
 
         if explicit_ingredient_id is not None:
             ingredient = (
@@ -136,7 +157,27 @@ def _replace_recipe_ingredients(*, db, recipe, ingredient_inputs):
         elif ingredient.unit is None and ingredient_unit is not None:
             ingredient.unit = ingredient_unit
 
+        ingredient_macros_created = False
+        if save_macros_to_ingredient and (
+            should_create_ingredient_record or explicit_ingredient_id is not None
+        ):
+            ingredient_macros_created = _apply_macros_to_ingredient_record(
+                ingredient=ingredient,
+                override_macros=override_macros,
+            )
+
         try_enrich_ingredient_macros(ingredient)
+
+        recipe_override_macros = (
+            {
+                "calories": None,
+                "protein": None,
+                "carbs": None,
+                "fat": None,
+            }
+            if ingredient_macros_created
+            else override_macros
+        )
 
         recipe_ingredient = RecipeIngredient(
             recipe_id=recipe.id,
@@ -146,12 +187,12 @@ def _replace_recipe_ingredients(*, db, recipe, ingredient_inputs):
             correction_status=_resolve_correction_status(
                 quantity=ingredient_input.quantity,
                 requested_status=ingredient_input.correction_status,
-                override_macros=override_macros,
+                override_macros=recipe_override_macros,
             ),
-            override_calories_per_unit=ingredient_input.override_calories_per_unit,
-            override_protein_per_unit=ingredient_input.override_protein_per_unit,
-            override_carbs_per_unit=ingredient_input.override_carbs_per_unit,
-            override_fat_per_unit=ingredient_input.override_fat_per_unit,
+            override_calories_per_unit=recipe_override_macros["calories"],
+            override_protein_per_unit=recipe_override_macros["protein"],
+            override_carbs_per_unit=recipe_override_macros["carbs"],
+            override_fat_per_unit=recipe_override_macros["fat"],
         )
         db.add(recipe_ingredient)
 

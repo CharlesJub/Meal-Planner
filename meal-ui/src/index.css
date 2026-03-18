@@ -224,7 +224,7 @@ main {
 }
 
 .ingredient-grid {
-  grid-template-columns: minmax(0, 2.3fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
 }
 
 .field {
@@ -258,6 +258,12 @@ main {
   margin: 0;
 }
 
+.ingredient-source-text {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.94rem;
+}
+
 .review-summary {
   display: inline-flex;
   align-items: baseline;
@@ -287,6 +293,40 @@ main {
   box-shadow: inset 0 0 0 1px rgba(196, 91, 47, 0.15);
 }
 
+.parse-issue-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.parse-issue-card-high {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px rgba(162, 61, 52, 0.14);
+}
+
+.parse-issue-card-medium {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(196, 91, 47, 0.14);
+}
+
+.parse-issue-card-low {
+  background: linear-gradient(180deg, rgba(255, 252, 246, 0.94), rgba(255, 255, 255, 0.9));
+  opacity: 0.9;
+}
+
+.parse-issue-header {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.parse-issue-header .badge-row {
+  margin-top: 0;
+}
+
+.parse-issue-reason {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;
@@ -308,6 +348,26 @@ main {
 .flag-badge-complete {
   background: var(--success-soft);
   color: var(--success);
+}
+
+.parse-issue-badge-high {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.parse-issue-badge-medium {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.parse-issue-badge-low {
+  background: rgba(63, 52, 40, 0.08);
+  color: var(--text);
+}
+
+.parse-issue-badge-neutral {
+  background: rgba(63, 52, 40, 0.08);
+  color: var(--text);
 }
 
 .ghost-button,
@@ -348,6 +408,19 @@ main {
   gap: 1rem;
 }
 
+.macro-save-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.macro-save-toggle input {
+  width: auto;
+  margin: 0;
+}
+
 .match-panel {
   margin-top: 1rem;
   display: grid;
@@ -363,56 +436,6 @@ main {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
-}
-
-.match-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-}
-
-.chip-button {
-  padding: 0.45rem 0.8rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 253, 248, 0.94);
-  color: var(--text);
-  box-shadow: none;
-}
-
-.chip-button-active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.match-search-grid {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-}
-
-.search-result-list {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.search-result-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
-  width: 100%;
-  padding: 0.8rem 0.95rem;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: #fffdf9;
-  color: var(--text);
-  box-shadow: none;
-  text-align: left;
-}
-
-.search-result-item span {
-  color: var(--text-muted);
-  font-size: 0.9rem;
 }
 
 .unparsed-item p {
@@ -466,8 +489,7 @@ main {
 
   .field-grid-two,
   .field-grid-four,
-  .ingredient-grid,
-  .match-search-grid {
+  .ingredient-grid {
     grid-template-columns: 1fr;
   }
 

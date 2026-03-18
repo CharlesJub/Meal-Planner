@@ -17,6 +17,8 @@ class RecipeIngredientInputTests(unittest.TestCase):
     def test_accepts_complete_macro_override_payloads(self):
         ingredient = RecipeIngredientInput(
             name="olive oil",
+            create_ingredient_record=True,
+            save_macros_to_ingredient=True,
             override_calories_per_unit=8.0,
             override_protein_per_unit=0.0,
             override_carbs_per_unit=0.0,
@@ -24,6 +26,8 @@ class RecipeIngredientInputTests(unittest.TestCase):
         )
 
         self.assertEqual(ingredient.override_calories_per_unit, 8.0)
+        self.assertTrue(ingredient.create_ingredient_record)
+        self.assertTrue(ingredient.save_macros_to_ingredient)
 
 
 if __name__ == "__main__":

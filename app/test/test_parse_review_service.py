@@ -94,6 +94,43 @@ class ParseReviewServiceTests(unittest.TestCase):
 
         self.assertTrue(result["needs_human_review"])
         self.assertEqual(result["summary"]["unparsed_line_count"], 1)
+        self.assertEqual(result["summary"]["parse_issue_count"], 1)
+        self.assertEqual(result["parse_issues"][0]["raw_line"], "Salt to taste")
+        self.assertEqual(result["parse_issues"][0]["section"], "unknown")
+        self.assertEqual(
+            result["summary"]["parse_issue_counts_by_severity"]["medium"], 1
+        )
+        self.assertEqual(
+            result["summary"]["parse_issue_counts_by_category"]["unknown"], 1
+        )
+
+    def test_prefers_structured_parse_issues_when_available(self):
+        parsed_recipe = {
+            "ingredients": [],
+            "unparsed_lines": ["Salt to taste"],
+            "parse_issues": [
+                {
+                    "raw_line": "Salt to taste",
+                    "line_number": 5,
+                    "section": "ingredients",
+                    "issue_type": "unparsed_ingredient_line",
+                    "reason": "Line was treated as ingredient content but did not match ingredient parsing heuristics.",
+                    "review_category": "optional_input",
+                    "severity": "low",
+                }
+            ],
+        }
+
+        result = build_parse_review(DbStub(), parsed_recipe)
+
+        self.assertEqual(result["summary"]["parse_issue_count"], 1)
+        self.assertEqual(result["parse_issues"][0]["line_number"], 5)
+        self.assertEqual(result["parse_issues"][0]["section"], "ingredients")
+        self.assertFalse(result["needs_human_review"])
+        self.assertEqual(result["summary"]["parse_issue_counts_by_severity"]["low"], 1)
+        self.assertEqual(
+            result["summary"]["parse_issue_counts_by_category"]["optional_input"], 1
+        )
 
     def test_returns_candidate_matches_for_manual_correction(self):
         parsed_recipe = {

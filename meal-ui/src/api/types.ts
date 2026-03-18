@@ -38,6 +38,12 @@ export type ReviewFlag =
 export type IngredientFormRow = {
   clientId: string
   name: string
+  originalText: string
+  preparationNotes: string
+  normalizedName: string
+  lastSuggestedQuery: string
+  shouldCreateIngredientRecord: boolean
+  saveMacrosToIngredient: boolean
   ingredientId: number | null
   quantity: string
   unit: string
@@ -46,13 +52,10 @@ export type IngredientFormRow = {
   overrideProteinPerUnit: string
   overrideCarbsPerUnit: string
   overrideFatPerUnit: string
+  macroValuesAreManual: boolean
   reviewFlags: ReviewFlag[]
-  needsReview: boolean
-  showMacros: boolean
   matchedIngredient: IngredientMatch | null
   candidateIngredients: IngredientMatch[]
-  searchTerm: string
-  searchResults: IngredientMatch[]
   isSearching: boolean
   isCreatingIngredient: boolean
 }
@@ -123,6 +126,8 @@ export type CreateRecipePayload = {
   ingredients: {
     name: string
     ingredient_id: number | null
+    create_ingredient_record: boolean
+    save_macros_to_ingredient: boolean
     quantity: number | null
     unit: string | null
     correction_status: string
@@ -141,6 +146,8 @@ export type UpdateRecipePayload = {
   ingredients: {
     name: string
     ingredient_id: number | null
+    create_ingredient_record: boolean
+    save_macros_to_ingredient: boolean
     quantity: number | null
     unit: string | null
     correction_status: string
@@ -170,14 +177,37 @@ export type ParsedIngredientReview = {
   suggested_status: string
 }
 
+export type ParseIssueSeverity = "high" | "medium" | "low"
+
+export type ParseIssueCategory =
+  | "parse_failure"
+  | "ingredient_cleanup"
+  | "informational_note"
+  | "optional_input"
+  | "unknown"
+
+export type ParsedParseIssue = {
+  raw_line: string
+  line_number: number | null
+  section: string
+  issue_type: string
+  reason: string
+  review_category: ParseIssueCategory
+  severity: ParseIssueSeverity
+}
+
 export type ParsedRecipeReview = {
   needs_human_review: boolean
   ingredient_reviews: ParsedIngredientReview[]
   unparsed_lines: string[]
+  parse_issues: ParsedParseIssue[]
   summary: {
     ingredient_count: number
     ingredients_needing_review: number
     unparsed_line_count: number
+    parse_issue_count: number
+    parse_issue_counts_by_severity: Record<ParseIssueSeverity, number>
+    parse_issue_counts_by_category: Record<string, number>
   }
 }
 
@@ -186,6 +216,7 @@ export type ParsedRecipe = {
   servings?: number | null
   ingredients: ParsedRecipeIngredient[]
   unparsed_lines: string[]
+  parse_issues: ParsedParseIssue[]
   instructions: string
   review: ParsedRecipeReview
 }
